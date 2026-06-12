@@ -45,6 +45,11 @@
 		FBCAFE000000000000005201 /* FBVideoEncoder.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000010 /* FBVideoEncoder.m */; };
 		FBCAFE000000000000005202 /* GCDAsyncSocket.m in Sources */ = {isa = PBXBuildFile; fileRef = 718226C82587443600661B83 /* GCDAsyncSocket.m */; };
 		FBCAFE000000000000005203 /* FBBroadcastProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005301 /* FBBroadcastProtocol.m */; };
+		FBCAFE000000000000007006 /* FBSocks5TunnelProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007001 /* FBSocks5TunnelProtocol.m */; };
+		FBCAFE000000000000007112 /* FBTunnelPacketProvider.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007111 /* FBTunnelPacketProvider.m */; };
+		FBCAFE000000000000007115 /* FBTunFdFinder.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007114 /* FBTunFdFinder.m */; };
+		FBCAFE000000000000007118 /* FBTunnelHevRunner.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007117 /* FBTunnelHevRunner.m */; };
+		FBCAFE000000000000007121 /* HevSocks5Tunnel.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007120 /* HevSocks5Tunnel.xcframework */; };
 		FBCAFE000000000000005302 /* FBBroadcastProtocol.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005300 /* FBBroadcastProtocol.h */; };
 		FBCAFE000000000000005303 /* FBBroadcastProtocol.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005300 /* FBBroadcastProtocol.h */; };
 		FBCAFE000000000000005304 /* FBBroadcastProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005301 /* FBBroadcastProtocol.m */; };
@@ -1011,6 +1016,13 @@
 			remoteGlobalIDString = FBCAFE000000000000005001;
 			remoteInfo = WebDriverAgentBroadcast;
 		};
+		FBCAFE000000000000007109 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 91F9DAE11B99DBC2001349B2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FBCAFE000000000000007101;
+			remoteInfo = WebDriverAgentTunnel;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -1059,6 +1071,17 @@
 		FBCAFE000000000000004001 /* FBVideoStreamSessionTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBVideoStreamSessionTests.m; sourceTree = "<group>"; };
 		FBCAFE000000000000005002 /* WebDriverAgentBroadcast.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WebDriverAgentBroadcast.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FBCAFE00000000000000500C /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		FBCAFE000000000000007102 /* WebDriverAgentTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WebDriverAgentTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		FBCAFE00000000000000710C /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = WebDriverAgentTunnel/Info.plist; sourceTree = SOURCE_ROOT; };
+		FBCAFE000000000000007110 /* FBTunnelPacketProvider.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBTunnelPacketProvider.h; sourceTree = "<group>"; };
+		FBCAFE000000000000007111 /* FBTunnelPacketProvider.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBTunnelPacketProvider.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007113 /* FBTunFdFinder.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBTunFdFinder.h; sourceTree = "<group>"; };
+		FBCAFE000000000000007114 /* FBTunFdFinder.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBTunFdFinder.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007116 /* FBTunnelHevRunner.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBTunnelHevRunner.h; sourceTree = "<group>"; };
+		FBCAFE000000000000007117 /* FBTunnelHevRunner.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBTunnelHevRunner.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007119 /* WebDriverAgentTunnel.entitlements */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.entitlements; path = WebDriverAgentTunnel.entitlements; sourceTree = "<group>"; };
+		FBCAFE00000000000000711A /* WebDriverAgentRunner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = WebDriverAgentRunner.entitlements; path = WebDriverAgentRunner/WebDriverAgentRunner.entitlements; sourceTree = SOURCE_ROOT; };
+		FBCAFE000000000000007120 /* HevSocks5Tunnel.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = HevSocks5Tunnel.xcframework; path = ThirdParty/HevSocks5Tunnel.xcframework; sourceTree = SOURCE_ROOT; };
 		FBCAFE000000000000005101 /* FBBroadcastSampleHandler.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBBroadcastSampleHandler.h; sourceTree = "<group>"; };
 		FBCAFE000000000000005102 /* FBBroadcastSampleHandler.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBBroadcastSampleHandler.m; sourceTree = "<group>"; };
 		FBCAFE000000000000005104 /* FBExtBroadcastClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBExtBroadcastClient.h; sourceTree = "<group>"; };
@@ -1687,6 +1710,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FBCAFE000000000000007107 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FBCAFE000000000000007121 /* HevSocks5Tunnel.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -1795,6 +1826,7 @@
 				EE9B75F91CF7964100275851 /* WebDriverAgentTests */,
 				EEF988341C486655005CA669 /* WebDriverAgentRunner */,
 				FBCAFE00000000000000500B /* WebDriverAgentBroadcast */,
+				FBCAFE00000000000000710B /* WebDriverAgentTunnel */,
 				EE9AB8021CAEE182008C271F /* Scripts */,
 				91F9DAEA1B99DBC2001349B2 /* Products */,
 				B6E83A410C45944B036B6B0F /* Frameworks */,
@@ -1819,6 +1851,7 @@
 				641EE6F82240C5CA00173FCB /* WebDriverAgentLib_tvOS.framework */,
 				64B264F9228C50E0002A5025 /* UnitTests_tvOS.xctest */,
 				FBCAFE000000000000005002 /* WebDriverAgentBroadcast.appex */,
+				FBCAFE000000000000007102 /* WebDriverAgentTunnel.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -2537,6 +2570,7 @@
 			children = (
 				EE9AB7FC1CAEE048008C271F /* Info.plist */,
 				EE9AB7FD1CAEE048008C271F /* UITestingUITests.m */,
+				FBCAFE00000000000000711A /* WebDriverAgentRunner.entitlements */,
 				A1B2C3D4E5F600000000001A /* Assets.xcassets */,
 			);
 			name = WebDriverAgentRunner;
@@ -2558,6 +2592,22 @@
 				FBCAFE00000000000000510A /* FBExtLogging.h */,
 			);
 			path = WebDriverAgentBroadcast;
+			sourceTree = "<group>";
+		};
+		FBCAFE00000000000000710B /* WebDriverAgentTunnel */ = {
+			isa = PBXGroup;
+			children = (
+				FBCAFE00000000000000710C /* Info.plist */,
+				FBCAFE000000000000007110 /* FBTunnelPacketProvider.h */,
+				FBCAFE000000000000007111 /* FBTunnelPacketProvider.m */,
+				FBCAFE000000000000007113 /* FBTunFdFinder.h */,
+				FBCAFE000000000000007114 /* FBTunFdFinder.m */,
+				FBCAFE000000000000007116 /* FBTunnelHevRunner.h */,
+				FBCAFE000000000000007117 /* FBTunnelHevRunner.m */,
+				FBCAFE000000000000007119 /* WebDriverAgentTunnel.entitlements */,
+				FBCAFE000000000000007120 /* HevSocks5Tunnel.xcframework */,
+			);
+			path = WebDriverAgentTunnel;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -3274,6 +3324,7 @@
 			dependencies = (
 				EE158B5C1CBD462500A3E3F0 /* PBXTargetDependency */,
 				FBCAFE00000000000000500A /* PBXTargetDependency */,
+				FBCAFE00000000000000710A /* PBXTargetDependency */,
 			);
 			name = WebDriverAgentRunner;
 			productName = XCTUITestRunner;
@@ -3295,6 +3346,23 @@
 			name = WebDriverAgentBroadcast;
 			productName = WebDriverAgentBroadcast;
 			productReference = FBCAFE000000000000005002 /* WebDriverAgentBroadcast.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		FBCAFE000000000000007101 /* WebDriverAgentTunnel */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FBCAFE000000000000007103 /* Build configuration list for PBXNativeTarget "WebDriverAgentTunnel" */;
+			buildPhases = (
+				FBCAFE000000000000007106 /* Sources */,
+				FBCAFE000000000000007107 /* Frameworks */,
+				FBCAFE000000000000007108 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = WebDriverAgentTunnel;
+			productName = WebDriverAgentTunnel;
+			productReference = FBCAFE000000000000007102 /* WebDriverAgentTunnel.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
@@ -3336,6 +3404,9 @@
 					FBCAFE000000000000005001 = {
 						CreatedOnToolsVersion = 15.0;
 					};
+					FBCAFE000000000000007101 = {
+						CreatedOnToolsVersion = 15.0;
+					};
 				};
 			};
 			buildConfigurationList = 91F9DAE41B99DBC2001349B2 /* Build configuration list for PBXProject "WebDriverAgent" */;
@@ -3355,6 +3426,7 @@
 				641EE5D52240C5CA00173FCB /* WebDriverAgentLib_tvOS */,
 				EEF988291C486603005CA669 /* WebDriverAgentRunner */,
 				FBCAFE000000000000005001 /* WebDriverAgentBroadcast */,
+				FBCAFE000000000000007101 /* WebDriverAgentTunnel */,
 				641EE2D92240BBE300173FCB /* WebDriverAgentRunner_tvOS */,
 				EE836C011C0F118600D87246 /* UnitTests */,
 				64B264F8228C50E0002A5025 /* UnitTests_tvOS */,
@@ -3440,6 +3512,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		FBCAFE000000000000005008 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FBCAFE000000000000007108 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -3913,6 +3992,17 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FBCAFE000000000000007106 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FBCAFE000000000000007112 /* FBTunnelPacketProvider.m in Sources */,
+				FBCAFE000000000000007115 /* FBTunFdFinder.m in Sources */,
+				FBCAFE000000000000007118 /* FBTunnelHevRunner.m in Sources */,
+				FBCAFE000000000000007006 /* FBSocks5TunnelProtocol.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -3970,6 +4060,11 @@
 			isa = PBXTargetDependency;
 			target = FBCAFE000000000000005001 /* WebDriverAgentBroadcast */;
 			targetProxy = FBCAFE000000000000005009 /* PBXContainerItemProxy */;
+		};
+		FBCAFE00000000000000710A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FBCAFE000000000000007101 /* WebDriverAgentTunnel */;
+			targetProxy = FBCAFE000000000000007109 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -4754,6 +4849,7 @@
 			baseConfigurationReference = EEE5CABF1C80361500CBBDD9 /* IOSSettings.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "$(WDA_RUNNER_ENTITLEMENTS)";
 				CLANG_STATIC_ANALYZER_MODE = deep;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_TESTING_SEARCH_PATHS = YES;
@@ -4808,6 +4904,7 @@
 			baseConfigurationReference = EEE5CABF1C80361500CBBDD9 /* IOSSettings.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "$(WDA_RUNNER_ENTITLEMENTS)";
 				CLANG_STATIC_ANALYZER_MODE = deep;
 				ENABLE_TESTING_SEARCH_PATHS = YES;
 				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
@@ -4882,6 +4979,40 @@
 				INFOPLIST_FILE = WebDriverAgentBroadcast/Info.plist;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.facebook.WebDriverAgentRunner.xctrunner.broadcast;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		FBCAFE000000000000007104 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = EEE5CABF1C80361500CBBDD9 /* IOSSettings.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = "$(WDA_TUNNEL_ENTITLEMENTS)";
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				GCC_TREAT_WARNINGS_AS_ERRORS = NO;
+				INFOPLIST_FILE = WebDriverAgentTunnel/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.facebook.WebDriverAgentRunner.xctrunner.tunnel;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		FBCAFE000000000000007105 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = EEE5CABF1C80361500CBBDD9 /* IOSSettings.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = "$(WDA_TUNNEL_ENTITLEMENTS)";
+				GCC_TREAT_WARNINGS_AS_ERRORS = NO;
+				INFOPLIST_FILE = WebDriverAgentTunnel/Info.plist;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.facebook.WebDriverAgentRunner.xctrunner.tunnel;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -4996,6 +5127,15 @@
 			buildConfigurations = (
 				FBCAFE000000000000005004 /* Debug */,
 				FBCAFE000000000000005005 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		FBCAFE000000000000007103 /* Build configuration list for PBXNativeTarget "WebDriverAgentTunnel" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FBCAFE000000000000007104 /* Debug */,
+				FBCAFE000000000000007105 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
