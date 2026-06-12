@@ -358,7 +358,9 @@ static const NSTimeInterval FBSocks5DefaultConnectTimeout = 30.0;
                                returnError:&messageError
                            responseHandler:^(NSData *responseData) {
     if (nil != responseData) {
-      id parsed = [NSJSONSerialization JSONObjectWithData:responseData options:0 error:nil];
+      id parsed = [NSJSONSerialization JSONObjectWithData:responseData
+                                                  options:(NSJSONReadingOptions)0
+                                                    error:nil];
       counters = [parsed isKindOfClass:NSDictionary.class] ? parsed : nil;
     }
     done = YES;
