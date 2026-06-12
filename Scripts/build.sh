@@ -114,7 +114,25 @@ function fastlane_test() {
   SDK="$XC_SDK" DEVICE="$FASTLANE_DEVICE" SCHEME="$1" bundle exec fastlane test
 }
 
+function prepare_socks5_engine() {
+  # The runner scheme builds the WebDriverAgentTunnel appex, which links
+  # HevSocks5Tunnel.xcframework built from the hev-socks5-tunnel submodule
+  # (no-op when the build stamp is current). See docs/socks5-tunnel.md.
+  if [[ "$TARGET" != "runner" ]]; then
+    return
+  fi
+  local script_dir
+  script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  if [ ! -f "$script_dir/../ThirdParty/hev-socks5-tunnel/src/hev-main.h" ]; then
+    echo "error: the hev-socks5-tunnel submodule is not initialized;" \
+         "run 'git submodule update --init --recursive' first"
+    exit 1
+  fi
+  "$script_dir/build-hev-socks5-tunnel.sh"
+}
+
 define_xc_macros
+prepare_socks5_engine
 case "$ACTION" in
   "analyze" ) analyze ;;
   "int_test_1" ) fastlane_test IntegrationTests_1 ;;
