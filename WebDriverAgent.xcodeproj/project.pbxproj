@@ -49,6 +49,16 @@
 		FBCAFE000000000000005303 /* FBBroadcastProtocol.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005300 /* FBBroadcastProtocol.h */; };
 		FBCAFE000000000000005304 /* FBBroadcastProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005301 /* FBBroadcastProtocol.m */; };
 		FBCAFE000000000000005305 /* FBBroadcastProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005301 /* FBBroadcastProtocol.m */; };
+		FBCAFE000000000000007002 /* FBSocks5TunnelProtocol.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007000 /* FBSocks5TunnelProtocol.h */; };
+		FBCAFE000000000000007003 /* FBSocks5TunnelProtocol.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007000 /* FBSocks5TunnelProtocol.h */; };
+		FBCAFE000000000000007004 /* FBSocks5TunnelProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007001 /* FBSocks5TunnelProtocol.m */; };
+		FBCAFE000000000000007005 /* FBSocks5TunnelProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007001 /* FBSocks5TunnelProtocol.m */; };
+		FBCAFE000000000000007012 /* FBSocks5URI.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007010 /* FBSocks5URI.h */; };
+		FBCAFE000000000000007013 /* FBSocks5URI.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007010 /* FBSocks5URI.h */; };
+		FBCAFE000000000000007014 /* FBSocks5URI.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007011 /* FBSocks5URI.m */; };
+		FBCAFE000000000000007015 /* FBSocks5URI.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007011 /* FBSocks5URI.m */; };
+		FBCAFE000000000000007021 /* FBSocks5URITests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007020 /* FBSocks5URITests.m */; };
+		FBCAFE000000000000007023 /* FBSocks5ConfigTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007022 /* FBSocks5ConfigTests.m */; };
 		FBCAFE000000000000005312 /* FBBroadcastControlServer.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005310 /* FBBroadcastControlServer.h */; };
 		FBCAFE000000000000005313 /* FBBroadcastControlServer.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005310 /* FBBroadcastControlServer.h */; };
 		FBCAFE000000000000005314 /* FBBroadcastControlServer.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005311 /* FBBroadcastControlServer.m */; };
@@ -1060,6 +1070,12 @@
 		FBCAFE00000000000000510A /* FBExtLogging.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBExtLogging.h; sourceTree = "<group>"; };
 		FBCAFE000000000000005300 /* FBBroadcastProtocol.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBBroadcastProtocol.h; sourceTree = "<group>"; };
 		FBCAFE000000000000005301 /* FBBroadcastProtocol.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBBroadcastProtocol.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007000 /* FBSocks5TunnelProtocol.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBSocks5TunnelProtocol.h; sourceTree = "<group>"; };
+		FBCAFE000000000000007001 /* FBSocks5TunnelProtocol.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBSocks5TunnelProtocol.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007010 /* FBSocks5URI.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBSocks5URI.h; sourceTree = "<group>"; };
+		FBCAFE000000000000007011 /* FBSocks5URI.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBSocks5URI.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007020 /* FBSocks5URITests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBSocks5URITests.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007022 /* FBSocks5ConfigTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBSocks5ConfigTests.m; sourceTree = "<group>"; };
 		FBCAFE000000000000005310 /* FBBroadcastControlServer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBBroadcastControlServer.h; sourceTree = "<group>"; };
 		FBCAFE000000000000005311 /* FBBroadcastControlServer.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBBroadcastControlServer.m; sourceTree = "<group>"; };
 		FBCAFE000000000000005320 /* FBBroadcastManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBBroadcastManager.h; sourceTree = "<group>"; };
@@ -2186,6 +2202,10 @@
 				FBCAFE000000000000000016 /* FBVideoStreamManager.m */,
 				FBCAFE000000000000005300 /* FBBroadcastProtocol.h */,
 				FBCAFE000000000000005301 /* FBBroadcastProtocol.m */,
+				FBCAFE000000000000007000 /* FBSocks5TunnelProtocol.h */,
+				FBCAFE000000000000007001 /* FBSocks5TunnelProtocol.m */,
+				FBCAFE000000000000007010 /* FBSocks5URI.h */,
+				FBCAFE000000000000007011 /* FBSocks5URI.m */,
 				FBCAFE000000000000005310 /* FBBroadcastControlServer.h */,
 				FBCAFE000000000000005311 /* FBBroadcastControlServer.m */,
 				FBCAFE000000000000005320 /* FBBroadcastManager.h */,
@@ -2281,6 +2301,8 @@
 				715D554A2229891B00524509 /* FBExceptionHandlerTests.m */,
 				713352FC26CEF31D00523CBC /* FBLRUCacheTests.m */,
 				EE18883C1DA663EB00307AA8 /* FBMathUtilsTests.m */,
+				FBCAFE000000000000007020 /* FBSocks5URITests.m */,
+				FBCAFE000000000000007022 /* FBSocks5ConfigTests.m */,
 				718F49C7230844330045FE8B /* FBProtocolHelpersTests.m */,
 				EE9B76571CF7987300275851 /* FBRouteTests.m */,
 				FBCAFE000000000000003010 /* FBTestInterruptionSuppressionTests.m */,
@@ -2770,6 +2792,8 @@
 				FBCAFE00000000000000000F /* FBVideoEncoder.h in Headers */,
 				FBCAFE000000000000000015 /* FBVideoStreamManager.h in Headers */,
 				FBCAFE000000000000005302 /* FBBroadcastProtocol.h in Headers */,
+				FBCAFE000000000000007002 /* FBSocks5TunnelProtocol.h in Headers */,
+				FBCAFE000000000000007012 /* FBSocks5URI.h in Headers */,
 				FBCAFE000000000000005312 /* FBBroadcastControlServer.h in Headers */,
 				FBCAFE000000000000005322 /* FBBroadcastManager.h in Headers */,
 				FBCAFE000000000000005332 /* FBBroadcastPickerHost.h in Headers */,
@@ -3032,6 +3056,8 @@
 				FBCAFE00000000000000000E /* FBVideoEncoder.h in Headers */,
 				FBCAFE000000000000000014 /* FBVideoStreamManager.h in Headers */,
 				FBCAFE000000000000005303 /* FBBroadcastProtocol.h in Headers */,
+				FBCAFE000000000000007003 /* FBSocks5TunnelProtocol.h in Headers */,
+				FBCAFE000000000000007013 /* FBSocks5URI.h in Headers */,
 				FBCAFE000000000000005313 /* FBBroadcastControlServer.h in Headers */,
 				FBCAFE000000000000005323 /* FBBroadcastManager.h in Headers */,
 				FBCAFE000000000000005333 /* FBBroadcastPickerHost.h in Headers */,
@@ -3544,6 +3570,8 @@
 				FBCAFE000000000000000012 /* FBVideoEncoder.m in Sources */,
 				FBCAFE000000000000000018 /* FBVideoStreamManager.m in Sources */,
 				FBCAFE000000000000005304 /* FBBroadcastProtocol.m in Sources */,
+				FBCAFE000000000000007004 /* FBSocks5TunnelProtocol.m in Sources */,
+				FBCAFE000000000000007014 /* FBSocks5URI.m in Sources */,
 				FBCAFE000000000000005314 /* FBBroadcastControlServer.m in Sources */,
 				FBCAFE000000000000005324 /* FBBroadcastManager.m in Sources */,
 				FBCAFE000000000000005334 /* FBBroadcastPickerHost.m in Sources */,
@@ -3701,6 +3729,8 @@
 				FBCAFE000000000000000011 /* FBVideoEncoder.m in Sources */,
 				FBCAFE000000000000000017 /* FBVideoStreamManager.m in Sources */,
 				FBCAFE000000000000005305 /* FBBroadcastProtocol.m in Sources */,
+				FBCAFE000000000000007005 /* FBSocks5TunnelProtocol.m in Sources */,
+				FBCAFE000000000000007015 /* FBSocks5URI.m in Sources */,
 				FBCAFE000000000000005315 /* FBBroadcastControlServer.m in Sources */,
 				FBCAFE000000000000005325 /* FBBroadcastManager.m in Sources */,
 				FBCAFE000000000000005335 /* FBBroadcastPickerHost.m in Sources */,
@@ -3786,6 +3816,8 @@
 				EE6A89261D0B19E60083E92B /* FBSessionTests.m in Sources */,
 				71A7EAFC1E229302001DA4F2 /* FBClassChainTests.m in Sources */,
 				EE18883D1DA663EB00307AA8 /* FBMathUtilsTests.m in Sources */,
+				FBCAFE000000000000007021 /* FBSocks5URITests.m in Sources */,
+				FBCAFE000000000000007023 /* FBSocks5ConfigTests.m in Sources */,
 				FBCAFE00000000000000001A /* FBPixelBufferConverterTests.m in Sources */,
 				FBCAFE00000000000000001C /* FBVideoEncoderTests.m in Sources */,
 				FBCAFE000000000000004002 /* FBVideoStreamSessionTests.m in Sources */,
