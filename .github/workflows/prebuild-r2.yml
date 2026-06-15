@@ -58,12 +58,6 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "${{ env.XCODE_VERSION }}"
-      # The iOS runner links HevSocks5Tunnel.xcframework via the
-      # WebDriverAgentTunnel appex; build it from the submodule first
-      # (idempotent/stamped). tvOS does not link the tunnel.
-      - name: Build SOCKS5 tunnel xcframework
-        if: ${{ matrix.ios }}
-        run: bash "$GITHUB_WORKSPACE/Scripts/build-hev-socks5-tunnel.sh"
       - name: Build & zip ${{ matrix.scheme }}-Runner.app
         run: sh "$GITHUB_WORKSPACE/Scripts/ci/build-real.sh"
         env:
@@ -110,9 +104,6 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "${{ env.XCODE_VERSION }}"
-      - name: Build SOCKS5 tunnel xcframework
-        if: ${{ matrix.ios }}
-        run: bash "$GITHUB_WORKSPACE/Scripts/build-hev-socks5-tunnel.sh"
       - name: Build & zip WebDriverAgentRunner${{ matrix.target }} (simulator)
         run: |
           DESTINATION="$DESTINATION_SIM${{ matrix.target }}" sh "$GITHUB_WORKSPACE/Scripts/ci/build-sim.sh"
