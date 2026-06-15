@@ -1,8 +1,9 @@
 name: Prebuild & Publish WDA to R2
 
-# Builds the prebuilt WebDriverAgentRunner artifacts (the same six zips the
-# manual wda-package.yml produced) and mirrors them to Cloudflare R2 under
-# releases/mobilerun-wda/, following the droidrun-ios release/preview pattern:
+# Builds the prebuilt WebDriverAgentRunner artifacts (six .ipa packages: iOS +
+# tvOS, real device + simulator arm64/x86_64) and mirrors them to Cloudflare R2
+# under releases/mobilerun-wda/, following the droidrun-ios release/preview
+# pattern:
 #
 #   release published  -> releases/mobilerun-wda/<tag>/  + releases/mobilerun-wda/latest/
 #   push to master      -> releases/mobilerun-wda/preview/
@@ -133,6 +134,23 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Repackage runner .app bundles as .ipa
+        working-directory: dist
+        run: |
+          set -eu
+          # Each build-* artifact is a zip holding a <Scheme>-Runner.app at the
+          # archive root. An .ipa is the same app under a top-level Payload/
+          # directory, so rewrap each one (keeps the shared build-*.sh scripts,
+          # which other workflows depend on, untouched).
+          for z in *.zip; do
+            rm -rf Payload
+            mkdir Payload
+            unzip -q "$z" -d Payload
+            zip -qr "${z%.zip}.ipa" Payload
+            rm -rf Payload "$z"
+          done
+          echo "Repackaged:"; ls -1 *.ipa
+
       - name: Generate SHA256SUMS and BUILD_INFO
         working-directory: dist
         run: |
@@ -142,7 +160,7 @@ jobs:
           else
             VERSION="preview-${GITHUB_SHA::7}"
           fi
-          sha256sum *.zip > SHA256SUMS
+          sha256sum *.ipa > SHA256SUMS
           {
             echo "version=${VERSION}"
             echo "commit=${GITHUB_SHA}"
