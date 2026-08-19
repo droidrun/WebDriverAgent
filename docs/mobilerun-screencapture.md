@@ -45,6 +45,7 @@ not a WDA automation session is active.
 | `bitrate` | int | no | `6000000` | Target average bits/sec. |
 | `quality` | float | no | `0.8` | JPEG quality (`0.0`–`1.0`) used for XCTest screenshot capture before local H.264/H.265 encoding. Lower values can reduce screenshot capture/decode cost. Does not affect ReplayKit/broadcast-source frames. |
 | `fps` | int | no | `30` | Capture/encode frame rate. |
+| `maxPixels` | int | no | device-dependent | Upper bound on `width×height`. Larger requests are scaled down aspect-preserving (rounded down to even). `0` disables the cap. When omitted, devices with an A12 chip or older default to `370944` (≈414×896); newer devices are uncapped. |
 | `port` | int | no | auto | `0` or omitted → auto-assign from **9200** (env `SCREEN_CAPTURE_SERVER_PORT` overrides the base), scanning forward up to 64 ports. An explicit port (1–65535) is tried once and surfaces a bind failure. |
 
 ## Session object
@@ -138,5 +139,8 @@ curl -s -X POST http://localhost:8100/mobilerun/screencapture/1/stop
 - If multiple screenshot-source sessions request different `quality` values, WDA captures the
   shared local screenshot frame at the lowest requested quality and fans it out to all local
   encoders.
+- When the cap shrinks the request, the session object and the stream's `VIDEO_PARAMS` carry
+  the actual (capped) dimensions — consumers should always read those instead of assuming the
+  requested size.
 - For `scrcpy` framing you must parse the 12-byte header yourself (or reuse `ReadFrame` from
   `h264reader.go`); you can't pipe it straight into ffmpeg the way you can with `annexb`.

@@ -13,6 +13,7 @@
 #import <netinet/in.h>
 #import <netinet/tcp.h>
 #import <sys/socket.h>
+#import <sys/sysctl.h>
 
 #import "GCDAsyncSocket.h"
 #import "FBLogger.h"
@@ -32,6 +33,57 @@ static const CGFloat FBDefaultScreenCaptureQuality = 0.8;
     _quality = FBDefaultScreenCaptureQuality;
   }
   return self;
+}
+
+// 414x896 - the largest per-frame capture load verified safe for sustained 60 fps encoding on
+// the oldest supported hardware class; larger frames make the system shed input events under
+// load, which starves automation.
+static const NSUInteger FBLegacyDevicePixelBudget = 370944;
+// iPhone11,x is the A12 generation; every major version at or below it gets the budget.
+static const NSInteger FBMaxLegacyIPhoneMajorVersion = 11;
+
++ (NSString *)fb_machineModel
+{
+#if TARGET_OS_SIMULATOR
+  // On the simulator hw.machine reports the host architecture; the simulated device model is
+  // exposed via the environment instead.
+  NSString *simulatorModel = NSProcessInfo.processInfo.environment[@"SIMULATOR_MODEL_IDENTIFIER"];
+  if (simulatorModel.length > 0) {
+    return simulatorModel;
+  }
+#endif
+  char machine[64] = {0};
+  size_t size = sizeof(machine) - 1;
+  if (0 == sysctlbyname("hw.machine", machine, &size, NULL, 0) && machine[0] != '\0') {
+    return [NSString stringWithUTF8String:machine] ?: @"";
+  }
+  return @"";
+}
+
++ (NSUInteger)fb_defaultPixelBudgetForMachineModel:(NSString *)machineModel
+{
+  static NSString *const prefix = @"iPhone";
+  if (![machineModel hasPrefix:prefix]) {
+    return 0;
+  }
+  NSScanner *scanner = [NSScanner scannerWithString:[machineModel substringFromIndex:prefix.length]];
+  NSInteger major = 0;
+  if (![scanner scanInteger:&major] || major <= 0) {
+    return 0;
+  }
+  return major <= FBMaxLegacyIPhoneMajorVersion ? FBLegacyDevicePixelBudget : 0;
+}
+
++ (CGSize)fb_sizeForWidth:(NSUInteger)width height:(NSUInteger)height pixelBudget:(NSUInteger)budget
+{
+  if (0 == budget || 0 == width || 0 == height || width * height <= budget) {
+    return CGSizeMake(width, height);
+  }
+  double scale = sqrt((double)budget / (double)(width * height));
+  // floor + even-align only ever shrink, so the scaled product stays within the budget
+  NSUInteger scaledWidth = ((NSUInteger)floor((double)width * scale)) & ~(NSUInteger)1;
+  NSUInteger scaledHeight = ((NSUInteger)floor((double)height * scale)) & ~(NSUInteger)1;
+  return CGSizeMake(MAX(scaledWidth, (NSUInteger)2), MAX(scaledHeight, (NSUInteger)2));
 }
 
 @end

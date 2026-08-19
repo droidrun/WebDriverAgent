@@ -9,6 +9,7 @@
 #import <XCTest/XCTest.h>
 
 #import "FBScrcpyPacket.h"
+#import "FBVideoStreamSession.h"
 
 // Mirrors the wire constants consumed by ios-wired/cmd/scrcpy-bridge/h264reader.go.
 static const uint64_t kFlagConfig   = (uint64_t)1 << 63;
@@ -111,6 +112,52 @@ static const uint64_t kPtsMask      = ~(((uint64_t)1 << 63) | ((uint64_t)1 << 62
   XCTAssertFalse(isConfig);
   XCTAssertTrue(isKeyFrame);
   XCTAssertEqual(pts, bigPts);
+}
+
+- (void)testDefaultPixelBudgetForLegacyIPhones
+{
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@"iPhone11,2"], (NSUInteger)370944);
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@"iPhone11,8"], (NSUInteger)370944);
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@"iPhone9,1"], (NSUInteger)370944);
+}
+
+- (void)testDefaultPixelBudgetForModernOrUnknownModels
+{
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@"iPhone12,1"], (NSUInteger)0);
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@"iPhone17,3"], (NSUInteger)0);
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@"iPad8,1"], (NSUInteger)0);
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@"AppleTV11,1"], (NSUInteger)0);
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@""], (NSUInteger)0);
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@"iPhoneX"], (NSUInteger)0);
+}
+
+- (void)testPixelBudgetClampPreservesAspectAndAlignment
+{
+  CGSize capped = [FBScreenCaptureConfiguration fb_sizeForWidth:562 height:1218 pixelBudget:370944];
+  XCTAssertLessThanOrEqual(capped.width * capped.height, 370944.0);
+  XCTAssertEqualWithAccuracy(capped.width / capped.height, 562.0 / 1218.0, 0.02);
+  XCTAssertEqual(((NSUInteger)capped.width) % 2, (NSUInteger)0);
+  XCTAssertEqual(((NSUInteger)capped.height) % 2, (NSUInteger)0);
+  XCTAssertGreaterThan(capped.width, 0.0);
+}
+
+- (void)testPixelBudgetLeavesSizesWithinBudgetAlone
+{
+  CGSize size = [FBScreenCaptureConfiguration fb_sizeForWidth:414 height:896 pixelBudget:370944];
+  XCTAssertEqual(size.width, 414.0);
+  XCTAssertEqual(size.height, 896.0);
+}
+
+- (void)testZeroPixelBudgetDisablesClamp
+{
+  CGSize size = [FBScreenCaptureConfiguration fb_sizeForWidth:5000 height:5000 pixelBudget:0];
+  XCTAssertEqual(size.width, 5000.0);
+  XCTAssertEqual(size.height, 5000.0);
+}
+
+- (void)testMachineModelIsNonNil
+{
+  XCTAssertNotNil([FBScreenCaptureConfiguration fb_machineModel]);
 }
 
 @end

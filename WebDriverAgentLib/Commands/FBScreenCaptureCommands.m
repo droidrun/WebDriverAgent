@@ -10,6 +10,7 @@
 
 #import "FBBroadcastManager.h"
 #import "FBConfiguration.h"
+#import "FBLogger.h"
 #import "FBRouteRequest.h"
 #import "FBVideoStreamManager.h"
 
@@ -126,6 +127,23 @@ static const CGFloat DEFAULT_CAPTURE_QUALITY = 0.8;
   NSInteger height = [request.arguments[@"height"] integerValue];
   if (width <= 0 || height <= 0) {
     return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:@"Both 'width' and 'height' must be provided as positive integers" traceback:nil]);
+  }
+
+  NSUInteger pixelBudget = 0;
+  id maxPixels = request.arguments[@"maxPixels"];
+  if (nil == maxPixels) {
+    pixelBudget = [FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:[FBScreenCaptureConfiguration fb_machineModel]];
+  } else if (![maxPixels isKindOfClass:NSNumber.class] || ((NSNumber *)maxPixels).integerValue < 0) {
+    return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:@"'maxPixels' must be a non-negative integer (0 disables the capture size cap)" traceback:nil]);
+  } else {
+    pixelBudget = ((NSNumber *)maxPixels).unsignedIntegerValue;
+  }
+  CGSize cappedSize = [FBScreenCaptureConfiguration fb_sizeForWidth:(NSUInteger)width height:(NSUInteger)height pixelBudget:pixelBudget];
+  if ((NSInteger)cappedSize.width < width || (NSInteger)cappedSize.height < height) {
+    [FBLogger logFmt:@"Capping the requested capture size %ldx%ld to %ldx%ld (pixel budget %lu)",
+     (long)width, (long)height, (long)cappedSize.width, (long)cappedSize.height, (unsigned long)pixelBudget];
+    width = (NSInteger)cappedSize.width;
+    height = (NSInteger)cappedSize.height;
   }
 
   FBScreenCaptureConfiguration *configuration = [[FBScreenCaptureConfiguration alloc] init];

@@ -49,6 +49,25 @@ typedef NS_ENUM(NSUInteger, FBVideoStreamSource) {
 /** The TCP port the encoded stream is broadcast on. */
 @property (nonatomic) uint16_t port;
 
+/**
+ The raw device model identifier (e.g. 'iPhone11,2'), resolved via sysctl. On the simulator the
+ simulated device's identifier is returned instead of the host architecture.
+ */
++ (NSString *)fb_machineModel;
+
+/**
+ The pixel budget (maximum width*height) that is safe for sustained capture on the given device
+ model, or 0 when the model has no default cap.
+ */
++ (NSUInteger)fb_defaultPixelBudgetForMachineModel:(NSString *)machineModel;
+
+/**
+ Scales width/height down (aspect-preserving, rounded down to even values) until
+ width*height <= budget. A budget of 0, a size already within budget, or a degenerate size is
+ returned unchanged.
+ */
++ (CGSize)fb_sizeForWidth:(NSUInteger)width height:(NSUInteger)height pixelBudget:(NSUInteger)budget;
+
 @end
 
 /**
