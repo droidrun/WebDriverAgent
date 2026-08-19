@@ -9,6 +9,8 @@
 #import <XCTest/XCTest.h>
 
 #import "FBRoute.h"
+#import "FBResponsePayload.h"
+#import "FBRouteRequest.h"
 
 @class RouteResponse;
 
@@ -119,6 +121,26 @@
 {
   FBRoute *route = [[FBRoute POST:@"/"].withoutSession respondWithTarget:self action:@selector(dummyHandler:)];
   XCTAssertEqualObjects(route.path, @"/");
+}
+
+- (void)testControlQueueFlagDefaultsToNo
+{
+  FBRoute *route = [[FBRoute GET:@"/status"].withoutSession respondWithTarget:self action:@selector(description)];
+  XCTAssertFalse(route.usesControlQueue);
+}
+
+- (void)testOnControlQueueSurvivesRespondWithTarget
+{
+  FBRoute *route = [[[FBRoute GET:@"/status"].withoutSession onControlQueue] respondWithTarget:self action:@selector(description)];
+  XCTAssertTrue(route.usesControlQueue);
+}
+
+- (void)testOnControlQueueSurvivesRespondWithBlock
+{
+  FBRoute *route = [[[FBRoute POST:@"/probe"] onControlQueue] respondWithBlock:^ id<FBResponsePayload> (FBRouteRequest *request) {
+    return nil;
+  }];
+  XCTAssertTrue(route.usesControlQueue);
 }
 
 + (id<FBResponsePayload>)dummyHandler:(FBRouteRequest *)request

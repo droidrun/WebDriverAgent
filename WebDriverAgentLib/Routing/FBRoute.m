@@ -18,6 +18,7 @@
 
 @interface FBRoute ()
 @property (nonatomic, assign, readwrite) BOOL requiresSession;
+@property (nonatomic, assign, readwrite) BOOL usesControlQueue;
 @property (nonatomic, copy, readwrite) NSString *verb;
 @property (nonatomic, copy, readwrite) NSString *path;
 
@@ -126,10 +127,17 @@ static NSString *const FBRouteSessionPrefix = @"/session/:sessionID";
   return self;
 }
 
+- (instancetype)onControlQueue
+{
+  self.usesControlQueue = YES;
+  return self;
+}
+
 - (instancetype)respondWithBlock:(FBRouteSyncHandler)handler
 {
   FBRoute_Sync *route = [FBRoute_Sync withVerb:self.verb path:self.path requiresSession:self.requiresSession];
   route.handler = handler;
+  route.usesControlQueue = self.usesControlQueue;
   return route;
 }
 
@@ -138,6 +146,7 @@ static NSString *const FBRouteSessionPrefix = @"/session/:sessionID";
   FBRoute_TargetAction *route = [FBRoute_TargetAction withVerb:self.verb path:self.path requiresSession:self.requiresSession];
   route.target = target;
   route.action = action;
+  route.usesControlQueue = self.usesControlQueue;
   return route;
 }
 
