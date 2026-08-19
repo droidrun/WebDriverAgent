@@ -63,9 +63,12 @@ Remove the global `setRouteQueue(main)`. Dispatch per route inside
   - `/health`, `/calibrate`, `/wda/shutdown` (registered directly on the server; run on
     the connection queue automatically once no global route queue is set — the shutdown
     delegate hop must be audited for thread safety)
-  - `/mobilerun/screencapture` family: start / stop / stop-all / list / get / keyframe
+  - `/mobilerun/screencapture` family: stop / stop-all / list / get / keyframe
     (`FBVideoStreamManager` is `@synchronized`-guarded and does its work on its own
-    background queue)
+    background queue). **start** stays on the automation queue — it reads
+    `XCUIScreen.mainScreen`, which violates the never-touches-XCUI rule.
+  - The unknown-endpoint fallback (`FBUnknownCommands`) — it only builds an error
+    payload, and a wedged agent should still say "no such route" instead of hanging.
   - `GET /mobilerun/screencapture/broadcast` (status read; `FBBroadcastManager` state
     reads must be audited/made atomic)
 
@@ -124,7 +127,9 @@ liveness probe that must reflect a wedged automation queue by timing out or erro
 - `WebDriverAgentLib/Utilities/FBXCTestDaemonsProxy.m` — bounded synthesis wait
 - `WebDriverAgentLib/Utilities/FBConfiguration.{h,m}` — synthesis margin property
 - `WebDriverAgentLib/Commands/FBScreenCaptureCommands.m` — `maxPixels` argument
-- New helper for device-class detection + clamp math (unit-testable pure functions)
+- `WebDriverAgentLib/Utilities/FBVideoStreamSession.{h,m}` — device-class detection + clamp
+  math as class methods on `FBScreenCaptureConfiguration` (unit-testable pure functions; no
+  new files so the Xcode project file stays untouched)
 - `docs/mobilerun-screencapture.md`, `docs/mobilerun-actions.md` — API docs
 
 ## Error handling
