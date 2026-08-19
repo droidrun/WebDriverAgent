@@ -1,16 +1,10 @@
 name: Prebuild & Publish WDA
 
-# Builds the prebuilt WebDriverAgentRunner artifacts (the same six zips the
-# upstream Release workflow produces) and publishes them as GitHub release
-# assets:
-#
-#   release published -> zips + SHA256SUMS + BUILD_INFO.txt attached to that
-#                        release; the latest stable release is always
-#                        reachable via releases/latest/download/<asset>
-#   push to master    -> rolling `preview` prerelease; the tag is moved to
-#                        the built commit and same-named assets are replaced
-#                        in place (releases/download/preview/<asset>)
-#   workflow_dispatch -> preview when run from master, build-only otherwise
+# Runs only when a release is published by hand on GitHub: builds the
+# prebuilt WebDriverAgentRunner artifacts (the same six zips the upstream
+# Release workflow produces) from the release tag and attaches them, plus
+# SHA256SUMS and BUILD_INFO.txt, to that release. The latest release is
+# always reachable via releases/latest/download/<asset>.
 #
 # Builds are unsigned (CODE_SIGNING_ALLOWED=NO in Scripts/ci/build-*.sh); the
 # runner is signed at install time.
@@ -18,23 +12,10 @@ name: Prebuild & Publish WDA
 on:
   release:
     types: [published]
-  push:
-    branches: [master]
-    # Only rebuild the preview when the produced artifacts can change.
-    paths:
-      - 'WebDriverAgentLib/**'
-      - 'WebDriverAgentRunner/**'
-      - 'PrivateHeaders/**'
-      - 'Configurations/**'
-      - 'WebDriverAgent.xcodeproj/**'
-      - 'Scripts/ci/**'
-      - '.github/workflows/prebuild.yml'
-  workflow_dispatch:
 
 concurrency:
-  group: prebuild-${{ github.ref }}
-  # Never cancel a release build; superseded preview builds can be dropped.
-  cancel-in-progress: ${{ github.event_name != 'release' }}
+  group: prebuild-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
 
 env:
   XCODE_VERSION: "16.4"
@@ -138,12 +119,6 @@ jobs:
     permissions:
       contents: write
     steps:
-      # Needed to move the `preview` tag; must run before artifacts land in
-      # the workspace because checkout cleans it.
-      - name: Checkout
-        if: ${{ github.event_name != 'release' && github.ref == 'refs/heads/master' }}
-        uses: actions/checkout@v7
-
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -154,11 +129,7 @@ jobs:
         working-directory: dist
         run: |
           set -eu
-          if [ "${{ github.event_name }}" = "release" ]; then
-            VERSION="${{ github.event.release.tag_name }}"
-          else
-            VERSION="preview-${GITHUB_SHA::7}"
-          fi
+          VERSION="${{ github.event.release.tag_name }}"
           sha256sum -- *.zip > SHA256SUMS
           {
             echo "version=${VERSION}"
@@ -171,39 +142,7 @@ jobs:
           echo "----- SHA256SUMS -----"; cat SHA256SUMS
           echo "----- BUILD_INFO.txt -----"; cat BUILD_INFO.txt
 
-      # --- Release: attach assets to the published release ---
       - name: Attach artifacts to GitHub Release
-        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-
-      # --- Trunk: rolling `preview` prerelease (only from master) ---
-      - name: Publish preview prerelease
-        if: ${{ github.event_name != 'release' && github.ref == 'refs/heads/master' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -eu
-          git tag -f preview "$GITHUB_SHA"
-          git push -f origin refs/tags/preview
-          if ! gh release view preview --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create preview \
-              --repo "$GITHUB_REPOSITORY" \
-              --prerelease \
-              --title "Preview (rolling build of master)" \
-              --notes "Rolling prebuilt WebDriverAgent artifacts from master."
-          fi
-          gh release upload preview dist/* --clobber --repo "$GITHUB_REPOSITORY"
-          {
-            echo "Rolling prebuilt WebDriverAgent artifacts from \`master\`."
-            echo
-            echo "- commit: ${GITHUB_SHA}"
-            echo "- built_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo
-            echo "Stable download URL: \`releases/download/preview/<asset>\`"
-          } > "${RUNNER_TEMP}/preview-notes.md"
-          gh release edit preview \
-            --repo "$GITHUB_REPOSITORY" \
-            --prerelease \
-            --notes-file "${RUNNER_TEMP}/preview-notes.md"
