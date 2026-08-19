@@ -21,6 +21,7 @@
 #import "XCTRunnerDaemonSession.h"
 #import "XCUIApplication.h"
 #import "XCUIDevice.h"
+#import "XCSynthesizedEventRecord.h"
 
 #define LAUNCH_APP_TIMEOUT_SEC 300
 
@@ -105,7 +106,12 @@ static void swizzledLaunchApp(id self, SEL _cmd, NSString *path, NSString *bundl
 + (BOOL)synthesizeEventWithRecord:(XCSynthesizedEventRecord *)record error:(NSError *__autoreleasing*)error
 {
   __block NSError *innerError = nil;
-  [FBRunLoopSpinner spinUntilCompletion:^(void(^completion)(void)){
+  // maximumOffset is the record's total scheduled duration in seconds, so quick taps get a
+  // short deadline while long W3C action chains still fit. A synthesis whose completion never
+  // arrives (e.g. the event was shed by the system under load) must fail this one request
+  // instead of blocking the automation queue forever.
+  NSTimeInterval timeout = record.maximumOffset + FBConfiguration.sharedInstance.eventSynthesisTimeoutMargin;
+  BOOL didComplete = [FBRunLoopSpinner spinUntilCompletion:^(void(^completion)(void)){
     void (^errorHandler)(NSError *) = ^(NSError *invokeError) {
       if (nil != invokeError) {
         innerError = invokeError;
@@ -119,7 +125,12 @@ static void swizzledLaunchApp(id self, SEL _cmd, NSString *path, NSString *bundl
     [[XCUIDevice.sharedDevice eventSynthesizer] synthesizeEvent:record completion:(id)^(BOOL result, NSError *invokeError) {
       handlerBlock(record, invokeError);
     }];
-  }];
+  } timeout:timeout];
+  if (!didComplete) {
+    return [[[FBErrorBuilder builder]
+             withDescriptionFormat:@"The synthesized event was not acknowledged within %.1f seconds. The event delivery pipeline may be overloaded", timeout]
+            buildError:error];
+  }
   if (nil != innerError) {
     if (error) {
       *error = innerError;

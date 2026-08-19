@@ -140,6 +140,14 @@ typedef NS_ENUM(NSInteger, FBConfigurationKeyboardPreference) {
 @property (atomic, readonly) UInt64 httpRequestBodySizeLimit;
 
 /**
+ Extra time in seconds granted on top of a synthesized event's own scheduled duration before an
+ unacknowledged synthesis is failed with an error instead of blocking the caller forever.
+ Override with the EVENT_SYNTHESIS_TIMEOUT_MARGIN environment variable (a positive number of
+ seconds). Defaults to 15.
+ */
+- (NSTimeInterval)eventSynthesisTimeoutMargin;
+
+/**
  The default port number where the raw H.264/H.265 screen capture broadcaster is supposed to run.
  The default value is 9200. It can be overridden via the SCREEN_CAPTURE_SERVER_PORT environment
  variable or per request via the 'port' argument of /wda/screencapture/start.

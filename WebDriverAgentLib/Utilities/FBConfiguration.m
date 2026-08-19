@@ -30,6 +30,7 @@ static NSUInteger const DefaultScreenCaptureServerPort = 9200;
 static NSUInteger const DefaultAudioCaptureServerPort = 9400;
 static NSUInteger const DefaultPortRange = 100;
 static UInt64 const DefaultHttpRequestBodySizeLimit = 1024ull * 1024ull * 1024ull;
+static const NSTimeInterval DefaultEventSynthesisTimeoutMargin = 15.0;
 
 static char const *const controllerPrefBundlePath = "/System/Library/PrivateFrameworks/TextInput.framework/TextInput";
 static NSString *const controllerClassName = @"TIPreferencesController";
@@ -216,6 +217,18 @@ static NSString *const axSettingsClassName = @"AXSettings";
   }
 
   return DefaultHttpRequestBodySizeLimit;
+}
+
+- (NSTimeInterval)eventSynthesisTimeoutMargin
+{
+  const char *rawMargin = getenv("EVENT_SYNTHESIS_TIMEOUT_MARGIN");
+  if (rawMargin != NULL) {
+    double parsedMargin = atof(rawMargin);
+    if (parsedMargin > 0) {
+      return parsedMargin;
+    }
+  }
+  return DefaultEventSynthesisTimeoutMargin;
 }
 
 - (BOOL)verboseLoggingEnabled

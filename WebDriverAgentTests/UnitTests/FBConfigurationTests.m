@@ -69,4 +69,24 @@
   XCTAssertEqual(FBConfiguration.sharedInstance.httpRequestBodySizeLimit, 1024ull);
 }
 
+- (void)testEventSynthesisTimeoutMarginDefault
+{
+  unsetenv("EVENT_SYNTHESIS_TIMEOUT_MARGIN");
+  XCTAssertEqualWithAccuracy([FBConfiguration.sharedInstance eventSynthesisTimeoutMargin], 15.0, 0.001);
+}
+
+- (void)testEventSynthesisTimeoutMarginEnvOverride
+{
+  setenv("EVENT_SYNTHESIS_TIMEOUT_MARGIN", "42.5", 1);
+  XCTAssertEqualWithAccuracy([FBConfiguration.sharedInstance eventSynthesisTimeoutMargin], 42.5, 0.001);
+  unsetenv("EVENT_SYNTHESIS_TIMEOUT_MARGIN");
+}
+
+- (void)testEventSynthesisTimeoutMarginRejectsInvalidOverride
+{
+  setenv("EVENT_SYNTHESIS_TIMEOUT_MARGIN", "-3", 1);
+  XCTAssertEqualWithAccuracy([FBConfiguration.sharedInstance eventSynthesisTimeoutMargin], 15.0, 0.001);
+  unsetenv("EVENT_SYNTHESIS_TIMEOUT_MARGIN");
+}
+
 @end
