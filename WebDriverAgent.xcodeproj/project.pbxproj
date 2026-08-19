@@ -49,6 +49,7 @@
 		FBCAFE000000000000005303 /* FBBroadcastProtocol.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005300 /* FBBroadcastProtocol.h */; };
 		FBCAFE000000000000005304 /* FBBroadcastProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005301 /* FBBroadcastProtocol.m */; };
 		FBCAFE000000000000005305 /* FBBroadcastProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005301 /* FBBroadcastProtocol.m */; };
+		FBCAFE000000000000005306 /* FBBroadcastProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005301 /* FBBroadcastProtocol.m */; };
 		FBCAFE000000000000005312 /* FBBroadcastControlServer.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005310 /* FBBroadcastControlServer.h */; };
 		FBCAFE000000000000005313 /* FBBroadcastControlServer.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005310 /* FBBroadcastControlServer.h */; };
 		FBCAFE000000000000005314 /* FBBroadcastControlServer.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005311 /* FBBroadcastControlServer.m */; };
@@ -5105,6 +5106,7 @@
 				3FB977871FD8786CA90EB3E2 /* FBSessionCommands.m in Sources */,
 				D869B58002B298F70EE06B98 /* XCUIElement+FBMinMax.m in Sources */,
 				57EAF450031647694B6491F8 /* FBConfiguration.m in Sources */,
+				FBCAFE000000000000005306 /* FBBroadcastProtocol.m in Sources */,
 				792C7A9BC732FD697300346A /* FBElementCache.m in Sources */,
 				B82CC2C629E56223A8C355B9 /* XCUIElement+FBSwiping.m in Sources */,
 				4292F2484A46457054541ADD /* FBPasteboard.m in Sources */,
