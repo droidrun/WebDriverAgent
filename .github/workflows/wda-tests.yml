@@ -1,6 +1,23 @@
 name: WDA Tests
 
-on: [pull_request]
+# Only run the (expensive, ~38 macOS jobs) Xcode build/analyze/test suites
+# when files that can affect them change. CI-, docs- and JS-only PRs skip
+# this workflow entirely.
+on:
+  pull_request:
+    paths:
+      - 'WebDriverAgentLib/**'
+      - 'WebDriverAgentRunner/**'
+      - 'WebDriverAgentTests/**'
+      - 'WebDriverAgentBroadcast/**'
+      - 'PrivateHeaders/**'
+      - 'Configurations/**'
+      - 'WebDriverAgent.xcodeproj/**'
+      - 'Scripts/build.sh'
+      - 'Fastlane/**'
+      - 'Gemfile*'
+      - '.github/workflows/wda-tests.yml'
+      - '.github/actions/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

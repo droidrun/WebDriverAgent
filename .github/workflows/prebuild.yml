@@ -1,27 +1,38 @@
-name: Prebuild & Publish WDA to R2
+name: Prebuild & Publish WDA
 
 # Builds the prebuilt WebDriverAgentRunner artifacts (the same six zips the
-# manual wda-package.yml produced) and mirrors them to Cloudflare R2 under
-# releases/mobilerun-wda/, following the droidrun-ios release/preview pattern:
+# upstream Release workflow produces) and publishes them as GitHub release
+# assets:
 #
-#   release published  -> releases/mobilerun-wda/<tag>/  + releases/mobilerun-wda/latest/
-#   push to master      -> releases/mobilerun-wda/preview/
-#   workflow_dispatch    -> preview/ when run from master, build-only otherwise
+#   release published -> zips + SHA256SUMS + BUILD_INFO.txt attached to that
+#                        release; the latest stable release is always
+#                        reachable via releases/latest/download/<asset>
+#   push to master    -> rolling `preview` prerelease; the tag is moved to
+#                        the built commit and same-named assets are replaced
+#                        in place (releases/download/preview/<asset>)
+#   workflow_dispatch -> preview when run from master, build-only otherwise
 #
 # Builds are unsigned (CODE_SIGNING_ALLOWED=NO in Scripts/ci/build-*.sh); the
-# runner is signed at install time. Requires these repo Secrets/Variables:
-#   secrets: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
-#   vars:    R2_BUCKET
+# runner is signed at install time.
 
 on:
   release:
     types: [published]
   push:
     branches: [master]
+    # Only rebuild the preview when the produced artifacts can change.
+    paths:
+      - 'WebDriverAgentLib/**'
+      - 'WebDriverAgentRunner/**'
+      - 'PrivateHeaders/**'
+      - 'Configurations/**'
+      - 'WebDriverAgent.xcodeproj/**'
+      - 'Scripts/ci/**'
+      - '.github/workflows/prebuild.yml'
   workflow_dispatch:
 
 concurrency:
-  group: prebuild-r2-${{ github.ref }}
+  group: prebuild-${{ github.ref }}
   # Never cancel a release build; superseded preview builds can be dropped.
   cancel-in-progress: ${{ github.event_name != 'release' }}
 
@@ -43,29 +54,31 @@ jobs:
             derived_data: appium_wda_ios
             wd: appium_wda_ios/Build/Products/Debug-iphoneos
             zip: WebDriverAgentRunner-Runner.zip
-            ios: true
           - scheme: WebDriverAgentRunner_tvOS
             destination: generic/platform=tvOS
             derived_data: appium_wda_tvos
             wd: appium_wda_tvos/Build/Products/Debug-appletvos
             zip: WebDriverAgentRunner_tvOS-Runner.zip
-            ios: false
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
+        uses: actions/checkout@v7
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "${{ env.XCODE_VERSION }}"
       - name: Build & zip ${{ matrix.scheme }}-Runner.app
-        run: sh "$GITHUB_WORKSPACE/Scripts/ci/build-real.sh"
-        env:
-          DERIVED_DATA_PATH: ${{ matrix.derived_data }}
-          SCHEME: ${{ matrix.scheme }}
-          DESTINATION: ${{ matrix.destination }}
-          WD: ${{ matrix.wd }}
-          ZIP_PKG_NAME: ${{ matrix.zip }}
+        # Retried because simulator/device enumeration on fresh runners is
+        # flaky (same reason the upstream Release workflow retries).
+        uses: nick-fields/retry@v4
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          command: |
+            export DERIVED_DATA_PATH="${{ matrix.derived_data }}"
+            export SCHEME="${{ matrix.scheme }}"
+            export DESTINATION="${{ matrix.destination }}"
+            export WD="${{ matrix.wd }}"
+            export ZIP_PKG_NAME="${{ matrix.zip }}"
+            sh "$GITHUB_WORKSPACE/Scripts/ci/build-real.sh"
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -83,36 +96,34 @@ jobs:
           - target: ""
             arch: x86_64
             sim_dir: Debug-iphonesimulator
-            ios: true
           - target: ""
             arch: arm64
             sim_dir: Debug-iphonesimulator
-            ios: true
           - target: "_tvOS"
             arch: x86_64
             sim_dir: Debug-appletvsimulator
-            ios: false
           - target: "_tvOS"
             arch: arm64
             sim_dir: Debug-appletvsimulator
-            ios: false
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
+        uses: actions/checkout@v7
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "${{ env.XCODE_VERSION }}"
       - name: Build & zip WebDriverAgentRunner${{ matrix.target }} (simulator)
-        run: |
-          DESTINATION="$DESTINATION_SIM${{ matrix.target }}" sh "$GITHUB_WORKSPACE/Scripts/ci/build-sim.sh"
-        env:
-          SCHEME: WebDriverAgentRunner${{ matrix.target }}
-          ARCHS: ${{ matrix.arch }}
-          ZIP_PKG_NAME: WebDriverAgentRunner${{ matrix.target }}-Build-Sim-${{ matrix.arch }}.zip
-          DERIVED_DATA_PATH: wda_build
-          WD: wda_build/Build/Products/${{ matrix.sim_dir }}
+        uses: nick-fields/retry@v4
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          command: |
+            export SCHEME="WebDriverAgentRunner${{ matrix.target }}"
+            export ARCHS="${{ matrix.arch }}"
+            export ZIP_PKG_NAME="WebDriverAgentRunner${{ matrix.target }}-Build-Sim-${{ matrix.arch }}.zip"
+            export DERIVED_DATA_PATH="wda_build"
+            export WD="wda_build/Build/Products/${{ matrix.sim_dir }}"
+            export DESTINATION="$DESTINATION_SIM${{ matrix.target }}"
+            sh "$GITHUB_WORKSPACE/Scripts/ci/build-sim.sh"
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -121,12 +132,18 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Publish to Cloudflare R2
+    name: Publish to GitHub Releases
     needs: [build-real, build-sim]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      # Needed to move the `preview` tag; must run before artifacts land in
+      # the workspace because checkout cleans it.
+      - name: Checkout
+        if: ${{ github.event_name != 'release' && github.ref == 'refs/heads/master' }}
+        uses: actions/checkout@v7
+
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -142,7 +159,7 @@ jobs:
           else
             VERSION="preview-${GITHUB_SHA::7}"
           fi
-          sha256sum *.zip > SHA256SUMS
+          sha256sum -- *.zip > SHA256SUMS
           {
             echo "version=${VERSION}"
             echo "commit=${GITHUB_SHA}"
@@ -154,43 +171,39 @@ jobs:
           echo "----- SHA256SUMS -----"; cat SHA256SUMS
           echo "----- BUILD_INFO.txt -----"; cat BUILD_INFO.txt
 
-      # --- Release: versioned folder + latest mirror ---
-      - name: Upload to R2 (versioned)
-        if: github.event_name == 'release'
-        uses: ryand56/r2-upload-action@latest
-        with:
-          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
-          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket: ${{ vars.R2_BUCKET }}
-          source-dir: dist
-          destination-dir: releases/mobilerun-wda/${{ github.event.release.tag_name }}
-
-      - name: Upload to R2 (latest)
-        if: github.event_name == 'release'
-        uses: ryand56/r2-upload-action@latest
-        with:
-          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
-          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket: ${{ vars.R2_BUCKET }}
-          source-dir: dist
-          destination-dir: releases/mobilerun-wda/latest
-
+      # --- Release: attach assets to the published release ---
       - name: Attach artifacts to GitHub Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
 
-      # --- Trunk: preview folder (only from master) ---
-      - name: Upload to R2 (preview)
+      # --- Trunk: rolling `preview` prerelease (only from master) ---
+      - name: Publish preview prerelease
         if: ${{ github.event_name != 'release' && github.ref == 'refs/heads/master' }}
-        uses: ryand56/r2-upload-action@latest
-        with:
-          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
-          r2-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          r2-bucket: ${{ vars.R2_BUCKET }}
-          source-dir: dist
-          destination-dir: releases/mobilerun-wda/preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          git tag -f preview "$GITHUB_SHA"
+          git push -f origin refs/tags/preview
+          if ! gh release view preview --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create preview \
+              --repo "$GITHUB_REPOSITORY" \
+              --prerelease \
+              --title "Preview (rolling build of master)" \
+              --notes "Rolling prebuilt WebDriverAgent artifacts from master."
+          fi
+          gh release upload preview dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          {
+            echo "Rolling prebuilt WebDriverAgent artifacts from \`master\`."
+            echo
+            echo "- commit: ${GITHUB_SHA}"
+            echo "- built_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo
+            echo "Stable download URL: \`releases/download/preview/<asset>\`"
+          } > "${RUNNER_TEMP}/preview-notes.md"
+          gh release edit preview \
+            --repo "$GITHUB_REPOSITORY" \
+            --prerelease \
+            --notes-file "${RUNNER_TEMP}/preview-notes.md"

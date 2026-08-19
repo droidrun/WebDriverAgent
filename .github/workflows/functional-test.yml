@@ -1,6 +1,22 @@
 name: Functional Tests
 
-on: [pull_request]
+# The e2e suite builds WDA from source and drives it through the JS module,
+# so run it only when native sources or the JS runtime/tests change.
+on:
+  pull_request:
+    paths:
+      - 'WebDriverAgentLib/**'
+      - 'WebDriverAgentRunner/**'
+      - 'WebDriverAgentTests/**'
+      - 'PrivateHeaders/**'
+      - 'Configurations/**'
+      - 'WebDriverAgent.xcodeproj/**'
+      - 'lib/**'
+      - 'test/**'
+      - 'Scripts/build-webdriveragent.mjs'
+      - 'package.json'
+      - 'tsconfig.json'
+      - '.github/workflows/functional-test.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
