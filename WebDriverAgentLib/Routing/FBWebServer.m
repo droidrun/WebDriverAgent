@@ -28,6 +28,7 @@
 #import "FBUnknownCommands.h"
 #import "FBConfiguration.h"
 #import "FBLogger.h"
+#import "FBXCodeCompatibility.h"
 
 #import "XCUIDevice+FBHelpers.h"
 
@@ -95,6 +96,11 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 {
   [FBLogger logFmt:@"Built at %s %s", __DATE__, __TIME__];
   self.exceptionHandler = [FBExceptionHandler new];
+  // /status is served off the main queue (it uses onControlQueue), but FBSDKVersion() and
+  // FBTestmanagerdVersion() cache their result behind a dispatch_once. Burn both once-tokens
+  // here, on the main thread, so the first request never resolves them from a connection queue.
+  FBSDKVersion();
+  FBTestmanagerdVersion();
   if (![self startHTTPServer]) {
     return;
   }

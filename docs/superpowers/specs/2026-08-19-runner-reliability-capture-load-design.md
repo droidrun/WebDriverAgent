@@ -66,7 +66,9 @@ Remove the global `setRouteQueue(main)`. Dispatch per route inside
   - `/mobilerun/screencapture` family: stop / stop-all / list / get / keyframe
     (`FBVideoStreamManager` is `@synchronized`-guarded and does its work on its own
     background queue). **start** stays on the automation queue — it reads
-    `XCUIScreen.mainScreen`, which violates the never-touches-XCUI rule.
+    `XCUIScreen.mainScreen`, which violates the never-touches-XCUI rule. Only the
+    sessionless variants are served on the connection queue — session-bound lookups stay
+    on the automation queue because the session store is main-queue state.
   - The unknown-endpoint fallback (`FBUnknownCommands`) — it only builds an error
     payload, and a wedged agent should still say "no such route" instead of hanging.
   - `GET /mobilerun/screencapture/broadcast` (status read; `FBBroadcastManager` state
