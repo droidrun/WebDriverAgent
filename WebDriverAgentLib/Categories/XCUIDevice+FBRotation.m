@@ -13,7 +13,7 @@
 #import "XCUIApplication+FBHelpers.h"
 #import "XCUIElement+FBUtilities.h"
 
-# if !TARGET_OS_TV
+# if !TARGET_OS_TV && !TARGET_OS_WATCH
 
 @implementation XCUIDevice (FBRotation)
 
@@ -59,9 +59,30 @@ static UIInterfaceOrientation FBInterfaceOrientationFromDeviceOrientation(UIDevi
 {
   // Tapping elements immediately after rotation may fail due to way UIKit is handling touches.
   // We should wait till UI cools off, before continuing
-  [application fb_waitUntilStableWithTimeout:FBConfiguration.animationCoolOffTimeout];
+  [application fb_waitUntilStableWithTimeout:FBConfiguration.sharedInstance.animationCoolOffTimeout];
 
   return application.interfaceOrientation == FBInterfaceOrientationFromDeviceOrientation(orientation);
+}
+
+- (NSString *)fb_deviceOrientation
+{
+  switch (self.orientation) {
+    case UIDeviceOrientationPortrait:
+      return @"UIDeviceOrientationPortrait";
+    case UIDeviceOrientationPortraitUpsideDown:
+      return @"UIDeviceOrientationPortraitUpsideDown";
+    case UIDeviceOrientationLandscapeLeft:
+      return @"UIDeviceOrientationLandscapeLeft";
+    case UIDeviceOrientationLandscapeRight:
+      return @"UIDeviceOrientationLandscapeRight";
+    case UIDeviceOrientationFaceUp:
+      return @"UIDeviceOrientationFaceUp";
+    case UIDeviceOrientationFaceDown:
+      return @"UIDeviceOrientationFaceDown";
+    case UIDeviceOrientationUnknown:
+    default:
+      return @"UIDeviceOrientationUnknown";
+  }
 }
 
 - (NSDictionary *)fb_rotationMapping
