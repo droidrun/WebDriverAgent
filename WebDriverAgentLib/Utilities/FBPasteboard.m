@@ -11,6 +11,7 @@
 #import <mach/mach_time.h>
 #import "FBAlert.h"
 #import "FBErrorBuilder.h"
+#import "FBExceptions.h"
 #import "FBMacros.h"
 #import "XCUIApplication+FBHelpers.h"
 #import "XCUIApplication+FBAlert.h"
@@ -19,7 +20,7 @@
 // Must not be less than FB_MONTORING_INTERVAL in FBAlertsMonitor
 #define ALERT_CHECK_INTERVAL_SEC 2
 
-#if !TARGET_OS_TV
+#if !TARGET_OS_TV && !TARGET_OS_WATCH
 @implementation FBPasteboard
 
 + (BOOL)setData:(NSData *)data forType:(NSString *)type error:(NSError **)error
@@ -100,10 +101,13 @@
       break;
     }
 
-    XCUIElement *alertElement = XCUIApplication.fb_systemApplication.fb_alertElement;
-    if (nil != alertElement) {
-      FBAlert *alert = [FBAlert alertWithElement:alertElement];
-      [alert acceptWithError:nil];
+    @try {
+      [[FBAlert alertWithApplication:XCUIApplication.fb_systemApplication] accept];
+    } @catch (NSException *e) {
+      if (![e.name isEqualToString:FBAlertNotPresentException]) {
+        @throw e;
+      }
+      // No alert is present on this tick - expected on most iterations of this poll loop
     }
     uint64_t timeElapsed = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) - timeStarted;
     if (timeElapsed / NSEC_PER_SEC > timeout) {

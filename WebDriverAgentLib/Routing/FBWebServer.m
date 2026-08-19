@@ -8,28 +8,33 @@
 
 #import "FBWebServer.h"
 
+#if TARGET_OS_WATCH
+#import "FBWatchHTTPServer.h"
+#else
 #import "RoutingConnection.h"
 #import "RoutingHTTPServer.h"
-
 #import "FBBroadcastManager.h"
+#import "FBMjpegServer.h"
+#import "FBTCPSocket.h"
+#import "FBVideoStreamManager.h"
+#endif
+
 #import "FBCommandHandler.h"
 #import "FBErrorBuilder.h"
 #import "FBExceptionHandler.h"
-#import "FBMjpegServer.h"
 #import "FBRouteRequest.h"
 #import "FBRuntimeUtils.h"
 #import "FBSession.h"
-#import "FBTCPSocket.h"
 #import "FBUnknownCommands.h"
 #import "FBConfiguration.h"
 #import "FBLogger.h"
-#import "FBVideoStreamManager.h"
 
 #import "XCUIDevice+FBHelpers.h"
 
 static NSString *const FBServerURLBeginMarker = @"ServerURLHere->";
 static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 
+#if !TARGET_OS_WATCH
 @interface FBHTTPConnection : RoutingConnection
 @end
 
@@ -41,22 +46,34 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
   [super handleResourceNotFound];
 }
 
+- (UInt64)maxRequestBodySize
+{
+  return FBConfiguration.sharedInstance.httpRequestBodySizeLimit;
+}
+
 @end
+#endif
 
 
 @interface FBWebServer ()
 @property (nonatomic, strong) FBExceptionHandler *exceptionHandler;
+#if TARGET_OS_WATCH
+@property (nonatomic, strong) FBWatchHTTPServer *server;
+#else
 @property (nonatomic, strong) RoutingHTTPServer *server;
-@property (atomic, assign) BOOL keepAlive;
 @property (nonatomic, nullable) FBTCPSocket *screenshotsBroadcaster;
 @property (nonatomic, nullable, strong) FBMjpegServer *mjpegServer;
+#endif
+@property (atomic, assign) BOOL keepAlive;
 @end
 
 @implementation FBWebServer
 
 - (void)dealloc
 {
+#if !TARGET_OS_WATCH
   [self stopScreenshotsBroadcaster];
+#endif
 }
 
 + (NSArray<Class<FBCommandHandler>> *)collectCommandHandlerClasses
@@ -78,10 +95,14 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 {
   [FBLogger logFmt:@"Built at %s %s", __DATE__, __TIME__];
   self.exceptionHandler = [FBExceptionHandler new];
-  [self startHTTPServer];
+  if (![self startHTTPServer]) {
+    return;
+  }
+#if !TARGET_OS_WATCH
   [self initScreenshotsBroadcaster];
   // Listen permanently so broadcasts started from Control Center attach as well.
   [FBBroadcastManager.sharedInstance startListening];
+#endif
 
   self.keepAlive = YES;
   NSRunLoop *runLoop = [NSRunLoop mainRunLoop];
@@ -104,24 +125,32 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
   }
 }
 
-- (void)startHTTPServer
+- (BOOL)startHTTPServer
 {
+#if TARGET_OS_WATCH
+  self.server = [[FBWatchHTTPServer alloc] init];
+#else
   self.server = [[RoutingHTTPServer alloc] init];
+#endif
   [self.server setRouteQueue:dispatch_get_main_queue()];
   [self.server setDefaultHeader:@"Server" value:@"WebDriverAgent/1.0"];
   [self.server setDefaultHeader:@"Access-Control-Allow-Origin" value:@"*"];
   [self.server setDefaultHeader:@"Access-Control-Allow-Headers" value:@"Content-Type, X-Requested-With"];
+#if !TARGET_OS_WATCH
   [self.server setConnectionClass:[FBHTTPConnection self]];
+#endif
 
   [self registerRouteHandlers:[self.class collectCommandHandlerClasses]];
   [self registerServerKeyRouteHandlers];
 
-  NSRange serverPortRange = FBConfiguration.bindingPortRange;
-  NSString *bindingIP = FBConfiguration.bindingIPAddress;
+  NSRange serverPortRange = FBConfiguration.sharedInstance.bindingPortRange;
+  NSString *bindingIP = FBConfiguration.sharedInstance.bindingIPAddress;
+#if !TARGET_OS_WATCH
   if (bindingIP != nil) {
     [self.server setInterface:bindingIP];
     [FBLogger logFmt:@"Using custom binding IP address: %@", bindingIP];
   }
+#endif
 
   NSError *error;
   BOOL serverStarted = NO;
@@ -140,23 +169,30 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 
   if (!serverStarted) {
     [FBLogger logFmt:@"Last attempt to start web server failed with error %@", [error description]];
+    id<FBWebServerDelegate> delegate = self.delegate;
+    if ([delegate respondsToSelector:@selector(webServer:didFailToStartWithError:)]) {
+      [delegate webServer:self didFailToStartWithError:(NSError * _Nonnull)error];
+      return NO;
+    }
     abort();
   }
 
   NSString *serverHost = bindingIP ?: ([XCUIDevice sharedDevice].fb_wifiIPAddress ?: @"127.0.0.1");
   [FBLogger logFmt:@"%@http://%@:%d%@", FBServerURLBeginMarker, serverHost, [self.server port], FBServerURLEndMarker];
+  return YES;
 }
 
+#if !TARGET_OS_WATCH
 - (void)initScreenshotsBroadcaster
 {
   [self readMjpegSettingsFromEnv];
   self.mjpegServer = [[FBMjpegServer alloc] init];
   self.screenshotsBroadcaster = [[FBTCPSocket alloc]
-                                 initWithPort:(uint16_t)FBConfiguration.mjpegServerPort];
+                                 initWithPort:(uint16_t)FBConfiguration.sharedInstance.mjpegServerPort];
   self.screenshotsBroadcaster.delegate = self.mjpegServer;
   NSError *error;
   if (![self.screenshotsBroadcaster startWithError:&error]) {
-    [FBLogger logFmt:@"Cannot init screenshots broadcaster service on port %@. Original error: %@", @(FBConfiguration.mjpegServerPort), error.description];
+    [FBLogger logFmt:@"Cannot init screenshots broadcaster service on port %@. Original error: %@", @(FBConfiguration.sharedInstance.mjpegServerPort), error.description];
     [self.mjpegServer stopStreaming];
     self.mjpegServer = nil;
     self.screenshotsBroadcaster = nil;
@@ -185,20 +221,23 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
   NSDictionary *env = NSProcessInfo.processInfo.environment;
   NSString *scalingFactor = [env objectForKey:@"MJPEG_SCALING_FACTOR"];
   if (scalingFactor != nil && [scalingFactor length] > 0) {
-    [FBConfiguration setMjpegScalingFactor:[scalingFactor floatValue]];
+    FBConfiguration.sharedInstance.mjpegScalingFactor = [scalingFactor floatValue];
   }
   NSString *screenshotQuality = [env objectForKey:@"MJPEG_SERVER_SCREENSHOT_QUALITY"];
   if (screenshotQuality != nil && [screenshotQuality length] > 0) {
-    [FBConfiguration setMjpegServerScreenshotQuality:[screenshotQuality integerValue]];
+    FBConfiguration.sharedInstance.mjpegServerScreenshotQuality = [screenshotQuality integerValue];
   }
 }
+#endif
 
 - (void)stopServing
 {
   [FBSession.activeSession kill];
+#if !TARGET_OS_WATCH
   [FBVideoStreamManager.sharedInstance stopAllSessions];
   [FBBroadcastManager.sharedInstance stopListening];
   [self stopScreenshotsBroadcaster];
+#endif
   if (self.server.isRunning) {
     [self.server stop:NO];
   }
@@ -207,7 +246,11 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
   self.keepAlive = NO;
 }
 
+#if TARGET_OS_WATCH
+- (BOOL)attemptToStartServer:(FBWatchHTTPServer *)server onPort:(NSInteger)port withError:(NSError **)error
+#else
 - (BOOL)attemptToStartServer:(RoutingHTTPServer *)server onPort:(NSInteger)port withError:(NSError **)error
+#endif
 {
   server.port = (UInt16)port;
   NSError *innerError = nil;

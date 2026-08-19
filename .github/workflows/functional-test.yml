@@ -12,6 +12,11 @@ jobs:
       fail-fast: false
       matrix:
         test_targets:
+          # https://github.com/actions/runner-images/issues/14404
+          - HOST_OS: 'xcode-27'
+            XCODE_VERSION: '27.0-beta'
+            IOS_VERSION: '27.0'
+            IOS_MODEL: 'iPhone 17'
           - HOST_OS: 'macos-26'
             XCODE_VERSION: '26.4'
             IOS_VERSION: '26.4'
@@ -28,8 +33,8 @@ jobs:
     # https://github.com/actions/runner-images/blob/main/images/macos/macos-14-Readme.md
     runs-on: ${{matrix.test_targets.HOST_OS}}
     steps:
-    - uses: actions/checkout@v6
-    - uses: actions/setup-node@v6
+    - uses: actions/checkout@v7
+    - uses: actions/setup-node@v7
       with:
         node-version: lts/*
         check-latest: true
@@ -42,6 +47,7 @@ jobs:
       name: Install dev dependencies
 
     - name: Prepare iOS simulator
+      if: ${{ matrix.test_targets.XCODE_VERSION != '27.0-beta' }}
       env:
         DEVICE_NAME: ${{matrix.test_targets.IOS_MODEL}}
         PLATFORM_VERSION: ${{matrix.test_targets.IOS_VERSION}}

@@ -8,6 +8,9 @@
 
 #import "FBCustomCommands.h"
 
+#if TARGET_OS_WATCH
+@import WatchKit;
+#endif
 #import <XCTest/XCUIDevice.h>
 #import <CoreLocation/CoreLocation.h>
 
@@ -52,7 +55,7 @@
     [[FBRoute GET:@"/wda/screen"].withoutSession respondWithTarget:self action:@selector(handleGetScreen:)],
     [[FBRoute GET:@"/wda/activeAppInfo"] respondWithTarget:self action:@selector(handleActiveAppInfo:)],
     [[FBRoute GET:@"/wda/activeAppInfo"].withoutSession respondWithTarget:self action:@selector(handleActiveAppInfo:)],
-#if !TARGET_OS_TV // tvOS does not provide relevant APIs
+#if !TARGET_OS_TV && !TARGET_OS_WATCH // tvOS/watchOS do not provide relevant APIs
     [[FBRoute POST:@"/wda/setPasteboard"] respondWithTarget:self action:@selector(handleSetPasteboard:)],
     [[FBRoute POST:@"/wda/setPasteboard"].withoutSession respondWithTarget:self action:@selector(handleSetPasteboard:)],
     [[FBRoute POST:@"/wda/getPasteboard"] respondWithTarget:self action:@selector(handleGetPasteboard:)],
@@ -60,6 +63,10 @@
     [[FBRoute GET:@"/wda/batteryInfo"] respondWithTarget:self action:@selector(handleGetBatteryInfo:)],
 #endif
     [[FBRoute POST:@"/wda/pressButton"] respondWithTarget:self action:@selector(handlePressButtonCommand:)],
+#if TARGET_OS_WATCH
+    [[FBRoute POST:@"/wda/rotateDigitalCrown"] respondWithTarget:self action:@selector(handleRotateDigitalCrownCommand:)],
+    [[FBRoute POST:@"/wda/performHandGesture"] respondWithTarget:self action:@selector(handlePerformHandGestureCommand:)],
+#endif
     [[FBRoute POST:@"/wda/performAccessibilityAudit"] respondWithTarget:self action:@selector(handlePerformAccessibilityAudit:)],
     [[FBRoute POST:@"/wda/performIoHidEvent"] respondWithTarget:self action:@selector(handlePeformIOHIDEvent:)],
     [[FBRoute POST:@"/wda/expectNotification"] respondWithTarget:self action:@selector(handleExpectNotification:)],
@@ -72,8 +79,10 @@
     [[FBRoute GET:@"/wda/device/location"] respondWithTarget:self action:@selector(handleGetLocation:)],
     [[FBRoute GET:@"/wda/device/location"].withoutSession respondWithTarget:self action:@selector(handleGetLocation:)],
 #if !TARGET_OS_TV // tvOS does not provide relevant APIs
+#if !TARGET_OS_WATCH
 #if __clang_major__ >= 15
     [[FBRoute POST:@"/wda/element/:uuid/keyboardInput"] respondWithTarget:self action:@selector(handleKeyboardInput:)],
+#endif
 #endif
     [[FBRoute GET:@"/wda/simulatedLocation"] respondWithTarget:self action:@selector(handleGetSimulatedLocation:)],
     [[FBRoute GET:@"/wda/simulatedLocation"].withoutSession respondWithTarget:self action:@selector(handleGetSimulatedLocation:)],
@@ -151,7 +160,7 @@
   XCUIElement *mainStatusBar = app.statusBars.allElementsBoundByIndex.firstObject;
   CGSize statusBarSize = (nil == mainStatusBar) ? CGSizeZero : mainStatusBar.frame.size;
 
-#if TARGET_OS_TV
+#if TARGET_OS_TV || TARGET_OS_WATCH
   CGSize screenSize = app.frame.size;
 #else
   CGSize screenSize = FBAdjustDimensionsForApplication(app.wdFrame.size, app.interfaceOrientation);
@@ -240,7 +249,7 @@
   };
 }
 
-#if !TARGET_OS_TV
+#if !TARGET_OS_TV && !TARGET_OS_WATCH
 + (id<FBResponsePayload>)handleSetPasteboard:(FBRouteRequest *)request
 {
   NSString *contentType = request.arguments[@"contentType"] ?: @"plaintext";
@@ -289,6 +298,38 @@
   }
   return FBResponseWithOK();
 }
+
+#if TARGET_OS_WATCH
++ (id<FBResponsePayload>)handleRotateDigitalCrownCommand:(FBRouteRequest *)request
+{
+  NSNumber *delta = request.arguments[@"delta"];
+  if (nil == delta) {
+    return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:@"'delta' argument is mandatory"
+                                                                         traceback:nil]);
+  }
+  NSError *error;
+  if (![XCUIDevice.sharedDevice fb_rotateDigitalCrown:delta.doubleValue
+                                              velocity:request.arguments[@"velocity"]
+                                                 error:&error]) {
+    return FBResponseWithUnknownError(error);
+  }
+  return FBResponseWithOK();
+}
+
++ (id<FBResponsePayload>)handlePerformHandGestureCommand:(FBRouteRequest *)request
+{
+  NSString *gestureName = request.arguments[@"name"];
+  if (nil == gestureName) {
+    return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:@"'name' argument is mandatory"
+                                                                         traceback:nil]);
+  }
+  NSError *error;
+  if (![XCUIDevice.sharedDevice fb_performHandGesture:gestureName error:&error]) {
+    return FBResponseWithUnknownError(error);
+  }
+  return FBResponseWithOK();
+}
+#endif
 
 + (id<FBResponsePayload>)handleActivateSiri:(FBRouteRequest *)request
 {
@@ -357,7 +398,9 @@
   [locationManager setDistanceFilter:kCLHeadingFilterNone];
   // Always return the best acurate location data
   [locationManager setDesiredAccuracy:kCLLocationAccuracyBest];
+#if !TARGET_OS_WATCH
   [locationManager setPausesLocationUpdatesAutomatically:NO];
+#endif
   [locationManager startUpdatingLocation];
 
   CLAuthorizationStatus authStatus;
@@ -438,11 +481,17 @@
                                      @{
     @"currentLocale": currentLocale,
     @"timeZone": self.timeZone,
+#if TARGET_OS_WATCH
+    @"name": WKInterfaceDevice.currentDevice.name,
+    @"model": WKInterfaceDevice.currentDevice.model,
+    @"uuid": @"unknown",
+#else
     @"name": UIDevice.currentDevice.name,
     @"model": UIDevice.currentDevice.model,
     @"uuid": [UIDevice.currentDevice.identifierForVendor UUIDString] ?: @"unknown",
     // https://developer.apple.com/documentation/uikit/uiuserinterfaceidiom?language=objc
     @"userInterfaceIdiom": @(UIDevice.currentDevice.userInterfaceIdiom),
+#endif
     @"userInterfaceStyle": self.userInterfaceStyle,
 #if TARGET_OS_SIMULATOR
     @"isSimulator": @(YES),
@@ -473,6 +522,7 @@
   }
 
   static id userInterfaceStyle = nil;
+#if !TARGET_OS_WATCH
   static dispatch_once_t styleOnceToken;
   dispatch_once(&styleOnceToken, ^{
     if ([UITraitCollection respondsToSelector:NSSelectorFromString(@"currentTraitCollection")]) {
@@ -482,6 +532,7 @@
       }
     }
   });
+#endif
 
   if (nil == userInterfaceStyle) {
     return @"unsupported";
@@ -571,7 +622,7 @@
   return FBResponseWithOK();
 }
 
-#if __clang_major__ >= 15
+#if __clang_major__ >= 15 && !TARGET_OS_WATCH
 + (id<FBResponsePayload>)handleKeyboardInput:(FBRouteRequest *)request
 {
   FBElementCache *elementCache = request.session.elementCache;

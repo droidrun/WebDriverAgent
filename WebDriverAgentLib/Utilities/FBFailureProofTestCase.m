@@ -9,6 +9,9 @@
 #import "FBFailureProofTestCase.h"
 
 #import "FBLogger.h"
+#import "XCTIssue.h"
+#import "XCTSourceCodeContext.h"
+#import "XCTSourceCodeLocation.h"
 
 @interface XCTestCase (FBIssueHandling)
 
@@ -85,6 +88,8 @@
 /**
  Override 'recordFailureWithDescription' to not stop by failures.
  */
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-implementations"
 - (void)recordFailureWithDescription:(NSString *)description
                               inFile:(NSString *)filePath
                               atLine:(NSUInteger)lineNumber
@@ -92,6 +97,7 @@
 {
   [self _enqueueFailureWithDescription:description inFile:filePath atLine:lineNumber expected:expected];
 }
+#pragma clang diagnostic pop
 
 /**
  Private XCTestCase method used to block and tunnel failure messages

@@ -130,7 +130,7 @@
 - (void)testFindMatchesInElement
 {
   NSArray<id<FBXCElementSnapshot>> *matchingSnapshots = [FBXPath matchesWithRootElement:self.testedApplication forQuery:@"//XCUIElementTypeButton"];
-  XCTAssertEqual([matchingSnapshots count], 5);
+  XCTAssertEqual([matchingSnapshots count], FBMainViewButtonLabels.count);
   for (id<FBXCElementSnapshot> element in matchingSnapshots) {
     XCTAssertTrue([[FBXCElementSnapshotWrapper ensureWrapped:element].wdType isEqualToString:@"XCUIElementTypeButton"]);
   }
@@ -139,8 +139,8 @@
 - (void)testFindMatchesWithoutContextScopeLimit
 {
   XCUIElement *button = self.testedApplication.buttons.firstMatch;
-  BOOL previousValue = FBConfiguration.limitXpathContextScope;
-  FBConfiguration.limitXpathContextScope = NO;
+  BOOL previousValue = FBConfiguration.sharedInstance.limitXpathContextScope;
+  FBConfiguration.sharedInstance.limitXpathContextScope = NO;
   @try {
     NSArray *parentSnapshots = [FBXPath matchesWithRootElement:button forQuery:@".."];
     XCTAssertEqual(parentSnapshots.count, 1);
@@ -167,14 +167,14 @@
                           @"XCUIElementTypeButton"
                           );
   } @finally {
-    FBConfiguration.limitXpathContextScope = previousValue;
+    FBConfiguration.sharedInstance.limitXpathContextScope = previousValue;
   }
 }
 
 - (void)testFindMatchesInElementWithDotNotation
 {
   NSArray<id<FBXCElementSnapshot>> *matchingSnapshots = [FBXPath matchesWithRootElement:self.testedApplication forQuery:@".//XCUIElementTypeButton"];
-  XCTAssertEqual([matchingSnapshots count], 5);
+  XCTAssertEqual([matchingSnapshots count], FBMainViewButtonLabels.count);
   for (id<FBXCElementSnapshot> element in matchingSnapshots) {
     XCTAssertTrue([[FBXCElementSnapshotWrapper ensureWrapped:element].wdType isEqualToString:@"XCUIElementTypeButton"]);
   }
@@ -232,7 +232,7 @@
 - (void)testFindMultipleMatchesWithMatchesFunction
 {
   [self assertXPathQuery:@"//XCUIElementTypeButton[matches(@label, '.*')]"
-       findsButtonLabels:@[@"Alerts", @"Deadlock app", @"Attributes", @"Scrolling", @"Touch"]];
+       findsButtonLabels:FBMainViewButtonLabels];
 }
 
 - (void)testInvalidXPathExtensionFunctionViaElementLookup

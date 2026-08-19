@@ -18,12 +18,11 @@
 #import "FBRunLoopSpinner.h"
 #import "FBW3CActionsSynthesizer.h"
 #import "FBXCTestDaemonsProxy.h"
-#import "XCEventGenerator.h"
 #import "XCPointerEventPath.h"
 #import "XCSynthesizedEventRecord.h"
 #import "XCUIElement+FBUtilities.h"
 
-#if !TARGET_OS_TV
+#if !TARGET_OS_TV && !TARGET_OS_WATCH
 
 @implementation XCUIApplication (FBTouchAction)
 
@@ -66,7 +65,7 @@
                                             error:error]) {
     return NO;
   }
-  [self fb_waitUntilStableWithTimeout:FBConfiguration.animationCoolOffTimeout];
+  [self fb_waitUntilStableWithTimeout:FBConfiguration.sharedInstance.animationCoolOffTimeout];
   return YES;
 }
 

@@ -1,27 +1,21 @@
+import path from 'node:path';
+
+import {logger, timing, util} from '@appium/support';
+import type {AppiumLogger, StringRecord} from '@appium/types';
 import {retryInterval} from 'asyncbox';
 import {SubProcess, exec} from 'teen_process';
-import {logger, timing} from '@appium/support';
-import type {AppiumLogger, StringRecord} from '@appium/types';
-import {log as defaultLogger} from './logger';
-import {
-  setRealDeviceSecurity,
-  setXctestrunFile,
-  killProcess,
-  getWDAUpgradeTimestamp,
-  isTvOS,
-  escapeRegExp,
-  truncateString,
-} from './utils';
-import path from 'node:path';
-import {WDA_RUNNER_BUNDLE_ID} from './constants';
+
+import {WDA_RUNNER_BUNDLE_ID} from './constants.js';
+import {log as defaultLogger} from './logger.js';
+import type {NoSessionProxy} from './no-session-proxy.js';
 import type {
   AppleDevice,
   RetrieveBuildSettingsOptions,
   XcodeBuildArgs,
   XcodeBuildSettings,
   XcodeShowBuildSettingsEntry,
-} from './types';
-import type {NoSessionProxy} from './no-session-proxy';
+} from './types.js';
+import {getWDAUpgradeTimestamp, isTvOS, setRealDeviceSecurity, setXctestrunFile} from './utils/index.js';
 
 const DEFAULT_SIGNING_ID = 'iPhone Developer';
 const PREBUILD_DELAY = 0;
@@ -30,13 +24,9 @@ const LIB_SCHEME_IOS = 'WebDriverAgentLib';
 
 const ERROR_WRITING_ATTACHMENT = 'Error writing attachment data to file';
 const ERROR_COPYING_ATTACHMENT = 'Error copying testing attachment';
-const IGNORED_ERRORS = [
-  ERROR_WRITING_ATTACHMENT,
-  ERROR_COPYING_ATTACHMENT,
-  'Failed to remove screenshot at path',
-];
+const IGNORED_ERRORS = [ERROR_WRITING_ATTACHMENT, ERROR_COPYING_ATTACHMENT, 'Failed to remove screenshot at path'];
 const IGNORED_ERRORS_PATTERN = new RegExp(
-  '(' + IGNORED_ERRORS.map((errStr) => escapeRegExp(errStr)).join('|') + ')',
+  '(' + IGNORED_ERRORS.map((errStr) => util.escapeRegExp(errStr)).join('|') + ')',
 );
 
 const RUNNER_SCHEME_TV = 'WebDriverAgentRunner_tvOS';
@@ -72,16 +62,14 @@ export class XcodeBuild {
   private readonly wdaBindingIP?: string;
   private readonly updatedWDABundleId?: string;
   private readonly mjpegServerPort?: number;
+  private readonly maxHttpRequestBodySize?: number;
   private readonly prebuildDelay: number;
   private readonly allowProvisioningDeviceRegistration?: boolean;
   private readonly resultBundlePath?: string;
   private readonly resultBundleVersion?: string;
   private _didBuildFail: boolean;
   private _didProcessExit: boolean;
-  private readonly _buildSettingsPromises = new Map<
-    string,
-    Promise<XcodeBuildSettings | undefined>
-  >();
+  private readonly _buildSettingsPromises = new Map<string, Promise<XcodeBuildSettings | undefined>>();
   private noSessionProxy?: NoSessionProxy;
   private xctestrunFilePath?: string;
 
@@ -126,9 +114,9 @@ export class XcodeBuild {
     this.derivedDataPath = args.derivedDataPath;
 
     this.mjpegServerPort = args.mjpegServerPort;
+    this.maxHttpRequestBodySize = args.maxHttpRequestBodySize;
 
-    this.prebuildDelay =
-      typeof args.prebuildDelay === 'number' ? args.prebuildDelay : PREBUILD_DELAY;
+    this.prebuildDelay = typeof args.prebuildDelay === 'number' ? args.prebuildDelay : PREBUILD_DELAY;
 
     this.allowProvisioningDeviceRegistration = args.allowProvisioningDeviceRegistration;
 
@@ -160,6 +148,7 @@ export class XcodeBuild {
         bootstrapPath: this.bootstrapPath,
         wdaRemotePort: this.wdaRemotePort || 8100,
         wdaBindingIP: this.wdaBindingIP,
+        maxHttpRequestBodySize: this.maxHttpRequestBodySize,
       });
       return;
     }
@@ -170,9 +159,7 @@ export class XcodeBuild {
    * @param options - Optional scheme, SDK, configuration, or destination
    * @returns Build settings for the `build` action, or `undefined` if they cannot be determined
    */
-  async retrieveBuildSettings(
-    options?: RetrieveBuildSettingsOptions,
-  ): Promise<XcodeBuildSettings | undefined> {
+  async retrieveBuildSettings(options?: RetrieveBuildSettingsOptions): Promise<XcodeBuildSettings | undefined> {
     const cacheKey = buildSettingsCacheKey(options);
     let promise = this._buildSettingsPromises.get(cacheKey);
     if (!promise) {
@@ -305,12 +292,35 @@ export class XcodeBuild {
    * Stops the xcodebuild process and cleans up resources.
    */
   async quit(): Promise<void> {
-    await killProcess('xcodebuild', this.xcodebuild);
+    const xcodebuild = this.xcodebuild;
+    if (!xcodebuild || !xcodebuild.isRunning) {
+      return;
+    }
+
+    this.log.info(`Shutting down 'xcodebuild' process (pid '${xcodebuild.proc?.pid}')`);
+
+    try {
+      await xcodebuild.stop('SIGTERM', 1000);
+      return;
+    } catch (err: unknown) {
+      if (!(err as Error)?.message?.includes(`Process didn't end after`)) {
+        throw err;
+      }
+      this.log.debug(`xcodebuild process did not end in a timely fashion: '${(err as Error)?.message}'.`);
+    }
+
+    try {
+      await xcodebuild.stop('SIGKILL');
+    } catch (err: unknown) {
+      if ((err as Error)?.message?.includes('not currently running')) {
+        // The process ended but for some reason we were not informed.
+        return;
+      }
+      throw err;
+    }
   }
 
-  private async fetchBuildSettings(
-    options?: RetrieveBuildSettingsOptions,
-  ): Promise<XcodeBuildSettings | undefined> {
+  private async fetchBuildSettings(options?: RetrieveBuildSettingsOptions): Promise<XcodeBuildSettings | undefined> {
     const schemeLabel = options?.scheme ?? 'default';
     let stdout: string;
     try {
@@ -322,9 +332,7 @@ export class XcodeBuild {
         ...buildSettingsArgsFromOptions(options),
       ]));
     } catch (err: any) {
-      this.log.warn(
-        `Cannot retrieve WDA build settings for scheme '${schemeLabel}'. Original error: ${err.message}`,
-      );
+      this.log.warn(`Cannot retrieve WDA build settings for scheme '${schemeLabel}'. Original error: ${err.message}`);
       return;
     }
 
@@ -333,7 +341,7 @@ export class XcodeBuild {
       entries = JSON.parse(stdout) as XcodeShowBuildSettingsEntry[];
     } catch (err: any) {
       this.log.warn(
-        `Cannot parse WDA build settings for scheme '${schemeLabel}' from ${truncateString(stdout, 300)}. ` +
+        `Cannot parse WDA build settings for scheme '${schemeLabel}' from ${util.truncateString(stdout, 300)}. ` +
           `Original error: ${err.message}`,
       );
       return;
@@ -387,9 +395,7 @@ export class XcodeBuild {
     }
     args.push('-destination', `id=${this.device.udid}`);
 
-    const versionMatch = this.platformVersion
-      ? new RegExp(/^(\d+)\.(\d+)/).exec(this.platformVersion)
-      : null;
+    const versionMatch = this.platformVersion ? new RegExp(/^(\d+)\.(\d+)/).exec(this.platformVersion) : null;
     if (versionMatch) {
       args.push(
         `${isTvOS(this.platformName || '') ? 'TV' : 'IPHONE'}OS_DEPLOYMENT_TARGET=${versionMatch[1]}.${versionMatch[2]}`,
@@ -407,10 +413,7 @@ export class XcodeBuild {
         args.push('-xcconfig', this.xcodeConfigFile);
       }
       if (this.xcodeOrgId && this.xcodeSigningId) {
-        args.push(
-          `DEVELOPMENT_TEAM=${this.xcodeOrgId}`,
-          `CODE_SIGN_IDENTITY=${this.xcodeSigningId}`,
-        );
+        args.push(`DEVELOPMENT_TEAM=${this.xcodeOrgId}`, `CODE_SIGN_IDENTITY=${this.xcodeSigningId}`);
       }
       if (this.updatedWDABundleId) {
         args.push(`PRODUCT_BUNDLE_IDENTIFIER=${this.updatedWDABundleId}`);
@@ -430,10 +433,8 @@ export class XcodeBuild {
   }
 
   private async createSubProcess(buildOnly: boolean = false): Promise<SubProcess> {
-    if (!this.useXctestrunFile && this.realDevice) {
-      if (this.keychainPath && this.keychainPassword) {
-        await setRealDeviceSecurity(this.keychainPath, this.keychainPassword);
-      }
+    if (!this.useXctestrunFile && this.realDevice && this.keychainPath && this.keychainPassword) {
+      await setRealDeviceSecurity(this.keychainPath, this.keychainPassword);
     }
 
     const {cmd, args} = this.getCommand(buildOnly);
@@ -445,6 +446,10 @@ export class XcodeBuild {
       USE_PORT: this.wdaRemotePort,
       WDA_PRODUCT_BUNDLE_IDENTIFIER: this.updatedWDABundleId || WDA_RUNNER_BUNDLE_ID,
     });
+    delete env.MAX_HTTP_REQUEST_BODY_SIZE;
+    if (this.maxHttpRequestBodySize) {
+      env.MAX_HTTP_REQUEST_BODY_SIZE = this.maxHttpRequestBodySize;
+    }
     if (this.mjpegServerPort) {
       // https://github.com/appium/WebDriverAgent/pull/105
       env.MJPEG_SERVER_PORT = this.mjpegServerPort;
@@ -531,9 +536,7 @@ export class XcodeBuild {
         return currentStatus;
       }
 
-      this.log.debug(
-        `WebDriverAgent successfully started after ${timer.getDuration().asMilliSeconds.toFixed(0)}ms`,
-      );
+      this.log.debug(`WebDriverAgent successfully started after ${timer.getDuration().asMilliSeconds.toFixed(0)}ms`);
     } catch (err: any) {
       this.log.debug(err.stack);
       throw new Error(
