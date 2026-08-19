@@ -5,6 +5,15 @@ on:
 
 jobs:
   lint:
-    uses: appium/appium-workflows/.github/workflows/pr-title.yml@main
-    with:
-      config-preset: angular
+    # Calls the action directly instead of the
+    # appium/appium-workflows/.github/workflows/pr-title.yml@main reusable
+    # workflow (same action underneath): the reusable-workflow call has been
+    # startup-failing on this repo on every PR since appium-workflows#5.
+    name: https://www.conventionalcommits.org
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

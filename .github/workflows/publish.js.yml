@@ -26,6 +26,10 @@ env:
 
 jobs:
   build_matrix:
+    # Upstream npm release flow; skipped on forks (droidrun releases via
+    # prebuild.yml + manual GitHub releases). Skipping the root job also
+    # skips build-wda and release through `needs`.
+    if: github.repository == 'appium/WebDriverAgent'
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}

@@ -1,6 +1,11 @@
 name: Unit Tests
 
-on: [pull_request, push]
+# pull_request covers PR branches; limit push to master so every PR push
+# does not run the suite twice (once per event).
+on:
+  pull_request:
+  push:
+    branches: [master]
 
 
 jobs:
