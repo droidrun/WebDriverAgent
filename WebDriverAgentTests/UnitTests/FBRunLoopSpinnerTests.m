@@ -95,4 +95,39 @@
   XCTAssertNotNil(error);
 }
 
+- (void)testBoundedSpinReturnsYesWhenCompletionFires
+{
+  NSDate *start = [NSDate date];
+  BOOL result = [FBRunLoopSpinner spinUntilCompletion:^(void (^completion)(void)) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
+                   dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), completion);
+  } timeout:5.0];
+  XCTAssertTrue(result);
+  XCTAssertLessThan([[NSDate date] timeIntervalSinceDate:start], 4.0);
+}
+
+- (void)testBoundedSpinReturnsNoOnTimeout
+{
+  NSDate *start = [NSDate date];
+  BOOL result = [FBRunLoopSpinner spinUntilCompletion:^(void (^completion)(void)) {
+    // The completion is intentionally never called
+  } timeout:0.5];
+  XCTAssertFalse(result);
+  NSTimeInterval elapsed = [[NSDate date] timeIntervalSinceDate:start];
+  XCTAssertGreaterThanOrEqual(elapsed, 0.5);
+  XCTAssertLessThan(elapsed, 3.0);
+}
+
+- (void)testBoundedSpinToleratesLateCompletion
+{
+  __block void (^lateCompletion)(void) = nil;
+  BOOL result = [FBRunLoopSpinner spinUntilCompletion:^(void (^completion)(void)) {
+    lateCompletion = [completion copy];
+  } timeout:0.2];
+  XCTAssertFalse(result);
+  XCTAssertNotNil(lateCompletion);
+  // A completion arriving after the deadline must be a harmless no-op
+  lateCompletion();
+}
+
 @end

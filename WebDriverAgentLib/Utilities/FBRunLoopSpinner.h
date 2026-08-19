@@ -23,6 +23,16 @@ typedef __nullable id (^FBRunLoopSpinnerObjectBlock)(void);
 + (void)spinUntilCompletion:(void (^)(void(^completion)(void)))block;
 
 /**
+ Dispatches block and spins the run loop until `completion` is called or the timeout expires.
+
+ @param block the block to wait for to finish.
+ @param timeout the maximum time in seconds to wait for the completion.
+ @return YES if the completion was called before the deadline, NO on timeout. A completion
+         firing after the deadline is a harmless no-op.
+ */
++ (BOOL)spinUntilCompletion:(void (^)(void(^completion)(void)))block timeout:(NSTimeInterval)timeout;
+
+/**
  Updates the error message to print in the event of a timeout.
 
  @param timeoutErrorMessage the Error Message to print.
