@@ -30,24 +30,24 @@ static const CGFloat DEFAULT_CAPTURE_QUALITY = 0.8;
     // otherwise be swallowed by 'GET /mobilerun/screencapture/:id'.
     [[FBRoute POST:@"/mobilerun/screencapture/broadcast/start"] respondWithTarget:self action:@selector(handleStartBroadcast:)],
     [[FBRoute POST:@"/mobilerun/screencapture/broadcast/stop"] respondWithTarget:self action:@selector(handleStopBroadcast:)],
-    [[FBRoute GET:@"/mobilerun/screencapture/broadcast"] respondWithTarget:self action:@selector(handleGetBroadcastStatus:)],
+    [[[FBRoute GET:@"/mobilerun/screencapture/broadcast"] onControlQueue] respondWithTarget:self action:@selector(handleGetBroadcastStatus:)],
     [[FBRoute POST:@"/mobilerun/screencapture/broadcast/start"].withoutSession respondWithTarget:self action:@selector(handleStartBroadcast:)],
     [[FBRoute POST:@"/mobilerun/screencapture/broadcast/stop"].withoutSession respondWithTarget:self action:@selector(handleStopBroadcast:)],
-    [[FBRoute GET:@"/mobilerun/screencapture/broadcast"].withoutSession respondWithTarget:self action:@selector(handleGetBroadcastStatus:)],
+    [[[FBRoute GET:@"/mobilerun/screencapture/broadcast"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleGetBroadcastStatus:)],
 
     [[FBRoute POST:@"/mobilerun/screencapture/start"] respondWithTarget:self action:@selector(handleStartScreenCapture:)],
-    [[FBRoute POST:@"/mobilerun/screencapture/stop"] respondWithTarget:self action:@selector(handleStopAllScreenCapture:)],
-    [[FBRoute GET:@"/mobilerun/screencapture"] respondWithTarget:self action:@selector(handleListScreenCapture:)],
-    [[FBRoute GET:@"/mobilerun/screencapture/:id"] respondWithTarget:self action:@selector(handleGetScreenCapture:)],
-    [[FBRoute POST:@"/mobilerun/screencapture/:id/stop"] respondWithTarget:self action:@selector(handleStopScreenCapture:)],
-    [[FBRoute POST:@"/mobilerun/screencapture/:id/keyframe"] respondWithTarget:self action:@selector(handleRequestKeyFrame:)],
+    [[[FBRoute POST:@"/mobilerun/screencapture/stop"] onControlQueue] respondWithTarget:self action:@selector(handleStopAllScreenCapture:)],
+    [[[FBRoute GET:@"/mobilerun/screencapture"] onControlQueue] respondWithTarget:self action:@selector(handleListScreenCapture:)],
+    [[[FBRoute GET:@"/mobilerun/screencapture/:id"] onControlQueue] respondWithTarget:self action:@selector(handleGetScreenCapture:)],
+    [[[FBRoute POST:@"/mobilerun/screencapture/:id/stop"] onControlQueue] respondWithTarget:self action:@selector(handleStopScreenCapture:)],
+    [[[FBRoute POST:@"/mobilerun/screencapture/:id/keyframe"] onControlQueue] respondWithTarget:self action:@selector(handleRequestKeyFrame:)],
 
     [[FBRoute POST:@"/mobilerun/screencapture/start"].withoutSession respondWithTarget:self action:@selector(handleStartScreenCapture:)],
-    [[FBRoute POST:@"/mobilerun/screencapture/stop"].withoutSession respondWithTarget:self action:@selector(handleStopAllScreenCapture:)],
-    [[FBRoute GET:@"/mobilerun/screencapture"].withoutSession respondWithTarget:self action:@selector(handleListScreenCapture:)],
-    [[FBRoute GET:@"/mobilerun/screencapture/:id"].withoutSession respondWithTarget:self action:@selector(handleGetScreenCapture:)],
-    [[FBRoute POST:@"/mobilerun/screencapture/:id/stop"].withoutSession respondWithTarget:self action:@selector(handleStopScreenCapture:)],
-    [[FBRoute POST:@"/mobilerun/screencapture/:id/keyframe"].withoutSession respondWithTarget:self action:@selector(handleRequestKeyFrame:)],
+    [[[FBRoute POST:@"/mobilerun/screencapture/stop"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleStopAllScreenCapture:)],
+    [[[FBRoute GET:@"/mobilerun/screencapture"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleListScreenCapture:)],
+    [[[FBRoute GET:@"/mobilerun/screencapture/:id"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleGetScreenCapture:)],
+    [[[FBRoute POST:@"/mobilerun/screencapture/:id/stop"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleStopScreenCapture:)],
+    [[[FBRoute POST:@"/mobilerun/screencapture/:id/keyframe"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleRequestKeyFrame:)],
   ];
 }
 

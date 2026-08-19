@@ -23,10 +23,10 @@
 {
   return
   @[
-    [[FBRoute GET:@"/*"].withoutSession respondWithTarget:self action:@selector(unhandledHandler:)],
-    [[FBRoute POST:@"/*"].withoutSession respondWithTarget:self action:@selector(unhandledHandler:)],
-    [[FBRoute PUT:@"/*"].withoutSession respondWithTarget:self action:@selector(unhandledHandler:)],
-    [[FBRoute DELETE:@"/*"].withoutSession respondWithTarget:self action:@selector(unhandledHandler:)]
+    [[[FBRoute GET:@"/*"].withoutSession onControlQueue] respondWithTarget:self action:@selector(unhandledHandler:)],
+    [[[FBRoute POST:@"/*"].withoutSession onControlQueue] respondWithTarget:self action:@selector(unhandledHandler:)],
+    [[[FBRoute PUT:@"/*"].withoutSession onControlQueue] respondWithTarget:self action:@selector(unhandledHandler:)],
+    [[[FBRoute DELETE:@"/*"].withoutSession onControlQueue] respondWithTarget:self action:@selector(unhandledHandler:)]
   ];
 }
 

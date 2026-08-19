@@ -132,7 +132,9 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 #else
   self.server = [[RoutingHTTPServer alloc] init];
 #endif
+#if TARGET_OS_WATCH
   [self.server setRouteQueue:dispatch_get_main_queue()];
+#endif
   [self.server setDefaultHeader:@"Server" value:@"WebDriverAgent/1.0"];
   [self.server setDefaultHeader:@"Access-Control-Allow-Origin" value:@"*"];
   [self.server setDefaultHeader:@"Access-Control-Allow-Headers" value:@"Content-Type, X-Requested-With"];
@@ -293,14 +295,33 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 
         [FBLogger verboseLog:routeParams.description];
 
-        @try {
-          [route mountRequest:routeParams intoResponse:response];
+#if TARGET_OS_WATCH
+        [strongSelf mountRoute:route request:routeParams intoResponse:response];
+#else
+        if (route.usesControlQueue) {
+          // Served on this connection's own queue so it stays responsive while the automation
+          // queue is busy or blocked. Only routes that never touch XCUI state opt in.
+          [strongSelf mountRoute:route request:routeParams intoResponse:response];
+        } else {
+          dispatch_sync(dispatch_get_main_queue(), ^{
+            @autoreleasepool {
+              [strongSelf mountRoute:route request:routeParams intoResponse:response];
+            }
+          });
         }
-        @catch (NSException *exception) {
-          [strongSelf handleException:exception forResponse:response];
-        }
+#endif
       }];
     }
+  }
+}
+
+- (void)mountRoute:(FBRoute *)route request:(FBRouteRequest *)routeParams intoResponse:(RouteResponse *)response
+{
+  @try {
+    [route mountRequest:routeParams intoResponse:response];
+  }
+  @catch (NSException *exception) {
+    [self handleException:exception forResponse:response];
   }
 }
 
@@ -332,7 +353,11 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
       return;
     }
     [response respondWithString:@"Shutting down"];
-    [strongSelf.delegate webServerDidRequestShutdown:strongSelf];
+    // The delegate tears down automation state; run it on the main queue without blocking
+    // this connection's queue.
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [strongSelf.delegate webServerDidRequestShutdown:strongSelf];
+    });
   }];
 
   [self registerRouteHandlers:@[FBUnknownCommands.class]];
