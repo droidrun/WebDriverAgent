@@ -130,16 +130,11 @@ static const CGFloat DEFAULT_CAPTURE_QUALITY = 0.8;
   }
 
   NSUInteger pixelBudget = 0;
-  id maxPixels = request.arguments[@"maxPixels"];
-  if (nil == maxPixels) {
-    pixelBudget = [FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:[FBScreenCaptureConfiguration fb_machineModel]];
-  } else if (![maxPixels isKindOfClass:NSNumber.class]
-             || ((NSNumber *)maxPixels).integerValue < 0
-             || (((NSNumber *)maxPixels).integerValue >= 1 && ((NSNumber *)maxPixels).integerValue <= 3)) {
-    // 1..3 cannot be honored: 2x2 = 4 is the minimum encodable size.
+  NSUInteger deviceDefaultBudget = [FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:[FBScreenCaptureConfiguration fb_machineModel]];
+  if (![FBScreenCaptureConfiguration fb_pixelBudget:&pixelBudget
+                                       fromArgument:request.arguments[@"maxPixels"]
+                                      deviceDefault:deviceDefaultBudget]) {
     return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:@"'maxPixels' must be 0 (uncapped) or an integer of at least 4" traceback:nil]);
-  } else {
-    pixelBudget = ((NSNumber *)maxPixels).unsignedIntegerValue;
   }
   CGSize cappedSize = [FBScreenCaptureConfiguration fb_sizeForWidth:(NSUInteger)width height:(NSUInteger)height pixelBudget:pixelBudget];
   if ((NSInteger)cappedSize.width < width || (NSInteger)cappedSize.height < height) {

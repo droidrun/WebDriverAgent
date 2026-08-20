@@ -183,4 +183,29 @@ static const uint64_t kPtsMask      = ~(((uint64_t)1 << 63) | ((uint64_t)1 << 62
   XCTAssertEqual(capped.height, 2.0);
 }
 
+- (void)testPixelBudgetArgumentParsing
+{
+  NSUInteger budget = 99;
+  XCTAssertTrue([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:nil deviceDefault:370944]);
+  XCTAssertEqual(budget, (NSUInteger)370944);
+  XCTAssertTrue([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@0 deviceDefault:370944]);
+  XCTAssertEqual(budget, (NSUInteger)0);
+  XCTAssertTrue([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@4 deviceDefault:0]);
+  XCTAssertEqual(budget, (NSUInteger)4);
+  XCTAssertTrue([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@370944.0 deviceDefault:0]);
+  XCTAssertEqual(budget, (NSUInteger)370944);
+}
+
+- (void)testPixelBudgetArgumentParsingRejectsMalformedValues
+{
+  NSUInteger budget = 0;
+  XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@"370944" deviceDefault:0]);
+  XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@(-1) deviceDefault:0]);
+  XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@(0.5) deviceDefault:0]);
+  XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@(-0.5) deviceDefault:0]);
+  XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@(2) deviceDefault:0]);
+  XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@(NAN) deviceDefault:0]);
+  XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@(INFINITY) deviceDefault:0]);
+}
+
 @end

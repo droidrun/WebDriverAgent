@@ -43,7 +43,9 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
 
 @interface FBBroadcastManager () <FBBroadcastControlServerDelegate>
 
-@property (nonatomic, nullable) FBBroadcastControlServer *controlServer;
+// Read from connection queues (broadcast status route, sessionless capture-stop notifications)
+// while the main thread assigns/clears it - must stay atomic.
+@property (atomic, nullable) FBBroadcastControlServer *controlServer;
 @property (atomic, nullable, copy) NSDictionary *helloInfo;
 @property (atomic, nullable, copy) NSDictionary *lastHeartbeat;
 @property (atomic, nullable) NSDate *connectedAt;

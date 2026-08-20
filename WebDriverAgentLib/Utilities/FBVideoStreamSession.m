@@ -101,6 +101,29 @@ static const NSInteger FBMaxLegacyIPhoneMajorVersion = 11;
   return CGSizeMake(scaledWidth, scaledHeight);
 }
 
++ (BOOL)fb_pixelBudget:(NSUInteger *)outBudget fromArgument:(nullable id)maxPixels deviceDefault:(NSUInteger)deviceDefault
+{
+  if (nil == maxPixels) {
+    *outBudget = deviceDefault;
+    return YES;
+  }
+  if (![maxPixels isKindOfClass:NSNumber.class]) {
+    return NO;
+  }
+  // Validate the original numeric value: integerValue would silently truncate fractions
+  // (0.5 -> 0 disables the cap; -0.5 -> 0 passes a sign check but converts to garbage).
+  double rawBudget = ((NSNumber *)maxPixels).doubleValue;
+  if (!isfinite(rawBudget) || rawBudget < 0 || rawBudget != floor(rawBudget) || rawBudget > (double)NSUIntegerMax) {
+    return NO;
+  }
+  // 1..3 cannot be honored: 2x2 = 4 is the minimum encodable size.
+  if (rawBudget > 0 && rawBudget < 4) {
+    return NO;
+  }
+  *outBudget = (NSUInteger)rawBudget;
+  return YES;
+}
+
 @end
 
 

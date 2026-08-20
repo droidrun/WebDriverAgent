@@ -71,6 +71,18 @@ typedef NS_ENUM(NSUInteger, FBVideoStreamSource) {
  */
 + (CGSize)fb_sizeForWidth:(NSUInteger)width height:(NSUInteger)height pixelBudget:(NSUInteger)budget;
 
+/**
+ Parses the optional 'maxPixels' request argument into a pixel budget.
+
+ @param outBudget On success: the parsed budget (0 = uncapped); the device default when the
+                  argument is absent.
+ @param maxPixels The raw request argument (nil when absent).
+ @param deviceDefault The device-class default budget applied when the argument is absent.
+ @return NO when the argument is present but is not a finite, non-negative, integral number
+         equal to 0 or of at least 4 (2x2 = 4 is the minimum encodable size).
+ */
++ (BOOL)fb_pixelBudget:(NSUInteger *)outBudget fromArgument:(nullable id)maxPixels deviceDefault:(NSUInteger)deviceDefault;
+
 @end
 
 /**
