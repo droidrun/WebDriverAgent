@@ -55,7 +55,11 @@ Remove the global `setRouteQueue(main)`. Dispatch per route inside
 `-[FBWebServer registerRouteHandlers:]`:
 
 - **Automation routes** (default): `dispatch_sync` onto the main queue — semantics
-  identical to today for everything that touches XCUI / testmanagerd.
+  identical to today for everything that touches XCUI / testmanagerd. These requests are
+  additionally serialized through a dedicated funnel queue so at most one is ever in
+  flight, preserving pre-change one-at-a-time semantics against nested run-loop draining
+  (a second request could otherwise execute reentrantly inside a first handler that spins
+  the run loop, e.g. `FBRunLoopSpinner`).
 - **Control routes**: run inline on the connection's own queue. Marked with a new
   chainable `FBRoute` flag (`.onControlQueue`). Only routes whose handlers never touch
   XCUI and whose backing state is thread-safe qualify:
@@ -72,7 +76,8 @@ Remove the global `setRouteQueue(main)`. Dispatch per route inside
   - The unknown-endpoint fallback (`FBUnknownCommands`) — it only builds an error
     payload, and a wedged agent should still say "no such route" instead of hanging.
   - `GET /mobilerun/screencapture/broadcast` (status read; `FBBroadcastManager` state
-    reads must be audited/made atomic)
+    reads must be audited/made atomic). Like the rest of the capture family, only the
+    sessionless variant is served on the connection queue.
 
 Broadcast **start/stop** stay on the main queue: they drive the system broadcast picker
 through XCUI. `/mobilerun/state` also stays on the main queue **deliberately**: it is the

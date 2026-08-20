@@ -66,6 +66,9 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 @property (nonatomic, nullable, strong) FBMjpegServer *mjpegServer;
 #endif
 @property (atomic, assign) BOOL keepAlive;
+// Serializes automation requests onto a single funnel so at most one is ever in flight on
+// the main queue. See registerRouteHandlers: for why this is necessary.
+@property (nonatomic, strong) dispatch_queue_t automationQueue;
 @end
 
 @implementation FBWebServer
@@ -147,6 +150,8 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 #if !TARGET_OS_WATCH
   [self.server setConnectionClass:[FBHTTPConnection self]];
 #endif
+
+  self.automationQueue = dispatch_queue_create("com.facebook.WebDriverAgent.automation-funnel", DISPATCH_QUEUE_SERIAL);
 
   [self registerRouteHandlers:[self.class collectCommandHandlerClasses]];
   [self registerServerKeyRouteHandlers];
@@ -309,10 +314,15 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
           // queue is busy or blocked. Only routes that never touch XCUI state opt in.
           [strongSelf mountRoute:route request:routeParams intoResponse:response];
         } else {
-          dispatch_sync(dispatch_get_main_queue(), ^{
-            @autoreleasepool {
-              [strongSelf mountRoute:route request:routeParams intoResponse:response];
-            }
+          // Serialize automation requests: while one is on the main queue (possibly spinning the
+          // run loop), the next waits here instead of being enqueued to main, where a nested run
+          // loop drain would otherwise execute it reentrantly inside the first handler.
+          dispatch_sync(strongSelf.automationQueue, ^{
+            dispatch_sync(dispatch_get_main_queue(), ^{
+              @autoreleasepool {
+                [strongSelf mountRoute:route request:routeParams intoResponse:response];
+              }
+            });
           });
         }
 #endif

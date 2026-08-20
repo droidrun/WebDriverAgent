@@ -144,3 +144,6 @@ curl -s -X POST http://localhost:8100/mobilerun/screencapture/1/stop
   requested size.
 - For `scrcpy` framing you must parse the 12-byte header yourself (or reuse `ReadFrame` from
   `h264reader.go`); you can't pipe it straight into ffmpeg the way you can with `annexb`.
+- Only the **sessionless** capture-control endpoints (stop / list / get / keyframe / broadcast
+  status — i.e. the URLs without `/session/{id}`) stay responsive while an automation command
+  is blocked; session-scoped URLs queue behind automation.

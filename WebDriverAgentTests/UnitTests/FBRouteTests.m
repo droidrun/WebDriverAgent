@@ -159,10 +159,14 @@ static atomic_bool gControlProbeDone;
 static atomic_bool gControlProbeRanOffMain;
 static atomic_bool gAutomationProbeDone;
 static atomic_bool gAutomationProbeRanOnMain;
+static atomic_int gSpinningProbeDepth;
+static atomic_int gSpinningProbeMaxDepth;
+static atomic_int gSpinningProbeCompletions;
 
 @interface FBWebServer (DispatchTests)
 - (void)registerRouteHandlers:(NSArray *)commandHandlerClasses;
 - (RoutingHTTPServer *)server;
+@property (nonatomic, strong) dispatch_queue_t automationQueue;
 @end
 
 @interface FBDispatchProbeCommands : NSObject <FBCommandHandler>
@@ -188,6 +192,20 @@ static atomic_bool gAutomationProbeRanOnMain;
       atomic_store(&gAutomationProbeDone, true);
       return FBResponseWithOK();
     }],
+    // Not control-marked: goes through the automation funnel like any other automation route.
+    // Records the max nesting depth observed while it spins the main run loop, so a test can
+    // pin that a second concurrent automation request never executes reentrantly inside this one.
+    [[FBRoute GET:@"/probe/spinning"].withoutSession respondWithBlock:^ id<FBResponsePayload> (FBRouteRequest *request) {
+      int depth = atomic_fetch_add(&gSpinningProbeDepth, 1) + 1;
+      int prevMax = atomic_load(&gSpinningProbeMaxDepth);
+      while (depth > prevMax && !atomic_compare_exchange_weak(&gSpinningProbeMaxDepth, &prevMax, depth)) {
+        // retry until either our depth is recorded or another thread recorded a higher one
+      }
+      [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.4]];
+      atomic_fetch_sub(&gSpinningProbeDepth, 1);
+      atomic_fetch_add(&gSpinningProbeCompletions, 1);
+      return FBResponseWithOK();
+    }],
   ];
 }
 
@@ -208,8 +226,14 @@ static atomic_bool gAutomationProbeRanOnMain;
   atomic_store(&gControlProbeRanOffMain, false);
   atomic_store(&gAutomationProbeDone, false);
   atomic_store(&gAutomationProbeRanOnMain, false);
+  atomic_store(&gSpinningProbeDepth, 0);
+  atomic_store(&gSpinningProbeMaxDepth, 0);
+  atomic_store(&gSpinningProbeCompletions, 0);
 
   self.webServer = [FBWebServer new];
+  // startHTTPServer (unused by this test, see below) is normally what creates this; wire it
+  // up manually since automation routes now funnel through it.
+  self.webServer.automationQueue = dispatch_queue_create("com.facebook.WebDriverAgent.test-automation-funnel", DISPATCH_QUEUE_SERIAL);
   self.httpServer = [RoutingHTTPServer new];
   // Inject the server so route registration can be exercised without booting the full agent
   [self.webServer setValue:self.httpServer forKey:@"server"];
@@ -278,6 +302,25 @@ static atomic_bool gAutomationProbeRanOnMain;
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
   }
   XCTAssertTrue(atomic_load(&gAutomationProbeDone));
+}
+
+- (void)testAutomationRequestsDoNotNestInsideRunLoopSpin
+{
+  // Fire two automation requests close together. The first spins the main run loop inside its
+  // handler; without the automation funnel a nested run loop drain would let the second
+  // handler execute reentrantly inside the first (depth 2). With the funnel, the second
+  // request blocks on its own connection queue until the first finishes on main (depth 1).
+  [self fireRequestForPath:@"/probe/spinning"];
+  [NSThread sleepForTimeInterval:0.1];
+  [self fireRequestForPath:@"/probe/spinning"];
+
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:10.0];
+  while (atomic_load(&gSpinningProbeCompletions) < 2 && deadline.timeIntervalSinceNow > 0) {
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+  }
+
+  XCTAssertEqual(atomic_load(&gSpinningProbeCompletions), 2, @"both spinning requests must complete");
+  XCTAssertEqual(atomic_load(&gSpinningProbeMaxDepth), 1, @"a second automation request must never nest inside the first");
 }
 
 @end
