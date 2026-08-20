@@ -64,7 +64,10 @@ typedef NS_ENUM(NSUInteger, FBVideoStreamSource) {
 /**
  Scales width/height down (aspect-preserving, rounded down to even values) until
  width*height <= budget. A budget of 0, a size already within budget, or a degenerate size is
- returned unchanged.
+ returned unchanged. For budgets >= 4 the returned size never exceeds the budget; the aspect
+ ratio may be sacrificed for extreme aspect inputs where the minimum encodable size (2x2) would
+ otherwise push the product back over budget. Budgets 1..3 cannot be honored (2x2 = 4 is the
+ minimum encodable size) and are rejected at the API boundary before this method is called.
  */
 + (CGSize)fb_sizeForWidth:(NSUInteger)width height:(NSUInteger)height pixelBudget:(NSUInteger)budget;
 

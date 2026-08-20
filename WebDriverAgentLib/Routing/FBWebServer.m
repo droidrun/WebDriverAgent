@@ -102,14 +102,6 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
   if (![self startHTTPServer]) {
     return;
   }
-  // /status is served off the main queue (it uses onControlQueue), but FBSDKVersion() and
-  // FBTestmanagerdVersion() cache their result behind a dispatch_once. Burn both once-tokens
-  // here, on the main thread, warmed only after the server has bound: FBTestmanagerdVersion()'s
-  // legacy branch waits (with a bounded timeout) on the daemon, and a degraded daemon must not
-  // be able to prevent the server from binding. An early request that races the warm-up just
-  // blocks on the dispatch_once for at most the bounded handshake.
-  FBSDKVersion();
-  FBTestmanagerdVersion();
 #if !TARGET_OS_WATCH
   [self initScreenshotsBroadcaster];
   // Listen permanently so broadcasts started from Control Center attach as well.
@@ -117,6 +109,17 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 #endif
 
   self.keepAlive = YES;
+  // /status is served off the main queue (it uses onControlQueue), but FBSDKVersion() and
+  // FBTestmanagerdVersion() cache their result behind a dispatch_once. Burn both once-tokens
+  // here, on the main thread, warmed only after the server has bound: FBTestmanagerdVersion()'s
+  // legacy branch waits (with a bounded timeout) on the daemon, and a degraded daemon must not
+  // be able to prevent the server from binding. An early request that races the warm-up just
+  // blocks on the dispatch_once for at most the bounded handshake. Warmed only after
+  // initialization is complete and keepAlive is set, so a shutdown that arrives while the
+  // bounded legacy handshake spins the run loop simply clears keepAlive via stopServing and the
+  // serving loop below never starts.
+  FBSDKVersion();
+  FBTestmanagerdVersion();
   NSRunLoop *runLoop = [NSRunLoop mainRunLoop];
   while (self.keepAlive) {
     @try {

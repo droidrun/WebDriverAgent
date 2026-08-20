@@ -168,4 +168,19 @@ static const uint64_t kPtsMask      = ~(((uint64_t)1 << 63) | ((uint64_t)1 << 62
   XCTAssertGreaterThan(capped.width, 0.0);
 }
 
+- (void)testPixelBudgetClampHonorsBudgetForSkinnyDimensions
+{
+  CGSize capped = [FBScreenCaptureConfiguration fb_sizeForWidth:10000 height:2 pixelBudget:100];
+  XCTAssertLessThanOrEqual(capped.width * capped.height, 100.0);
+  XCTAssertGreaterThanOrEqual(capped.width, 2.0);
+  XCTAssertGreaterThanOrEqual(capped.height, 2.0);
+}
+
+- (void)testPixelBudgetClampAtMinimumBudget
+{
+  CGSize capped = [FBScreenCaptureConfiguration fb_sizeForWidth:5000 height:5000 pixelBudget:4];
+  XCTAssertEqual(capped.width, 2.0);
+  XCTAssertEqual(capped.height, 2.0);
+}
+
 @end

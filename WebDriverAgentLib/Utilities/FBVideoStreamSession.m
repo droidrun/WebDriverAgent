@@ -85,7 +85,20 @@ static const NSInteger FBMaxLegacyIPhoneMajorVersion = 11;
   // floor + even-align only ever shrink, so the scaled product stays within the budget
   NSUInteger scaledWidth = ((NSUInteger)floor((double)width * scale)) & ~(NSUInteger)1;
   NSUInteger scaledHeight = ((NSUInteger)floor((double)height * scale)) & ~(NSUInteger)1;
-  return CGSizeMake(MAX(scaledWidth, (NSUInteger)2), MAX(scaledHeight, (NSUInteger)2));
+  scaledWidth = MAX(scaledWidth, (NSUInteger)2);
+  scaledHeight = MAX(scaledHeight, (NSUInteger)2);
+  // The minimum-size clamp can push a very skinny result back over the budget (a floored-to-zero
+  // axis becomes 2 while the other axis was scaled for the pre-clamp aspect). When that happens,
+  // shrink the larger axis to fit; honoring the budget outranks preserving the aspect ratio.
+  // Division-based comparison so the check cannot overflow.
+  if (scaledWidth > budget / scaledHeight) {
+    if (scaledWidth >= scaledHeight) {
+      scaledWidth = MAX((budget / scaledHeight) & ~(NSUInteger)1, (NSUInteger)2);
+    } else {
+      scaledHeight = MAX((budget / scaledWidth) & ~(NSUInteger)1, (NSUInteger)2);
+    }
+  }
+  return CGSizeMake(scaledWidth, scaledHeight);
 }
 
 @end

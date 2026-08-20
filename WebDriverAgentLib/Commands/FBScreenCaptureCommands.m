@@ -133,8 +133,11 @@ static const CGFloat DEFAULT_CAPTURE_QUALITY = 0.8;
   id maxPixels = request.arguments[@"maxPixels"];
   if (nil == maxPixels) {
     pixelBudget = [FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:[FBScreenCaptureConfiguration fb_machineModel]];
-  } else if (![maxPixels isKindOfClass:NSNumber.class] || ((NSNumber *)maxPixels).integerValue < 0) {
-    return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:@"'maxPixels' must be a non-negative integer (0 disables the capture size cap)" traceback:nil]);
+  } else if (![maxPixels isKindOfClass:NSNumber.class]
+             || ((NSNumber *)maxPixels).integerValue < 0
+             || (((NSNumber *)maxPixels).integerValue >= 1 && ((NSNumber *)maxPixels).integerValue <= 3)) {
+    // 1..3 cannot be honored: 2x2 = 4 is the minimum encodable size.
+    return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:@"'maxPixels' must be 0 (uncapped) or an integer of at least 4" traceback:nil]);
   } else {
     pixelBudget = ((NSNumber *)maxPixels).unsignedIntegerValue;
   }
