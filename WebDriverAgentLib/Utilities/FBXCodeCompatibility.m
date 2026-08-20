@@ -90,16 +90,21 @@ NSInteger FBTestmanagerdVersion(void)
     id<XCTMessagingChannel_RunnerToDaemon> proxy = [FBXCTestDaemonsProxy testRunnerProxy];
     if ([(NSObject *)proxy respondsToSelector:@selector(_XCT_exchangeProtocolVersion:reply:)]) {
       id<FBXCTestManagerLegacyProtocolVersionExchanging> legacyProxy = (id<FBXCTestManagerLegacyProtocolVersionExchanging>)proxy;
+      // The reply lands in a block-local so a late response (after the bounded wait below has
+      // given up and dispatch_once has completed) never writes the shared static while
+      // concurrent readers may be using it; late replies are simply ignored.
+      __block NSInteger exchangedVersion = 0;
       BOOL exchanged = [FBRunLoopSpinner spinUntilCompletion:^(void(^completion)(void)){
         [legacyProxy _XCT_exchangeProtocolVersion:testmanagerdVersion reply:^(unsigned long long code) {
-          testmanagerdVersion = (NSInteger) code;
+          exchangedVersion = (NSInteger) code;
           completion();
         }];
       } timeout:FBProtocolVersionExchangeTimeout];
-      if (!exchanged) {
+      if (exchanged) {
+        testmanagerdVersion = exchangedVersion;
+      } else {
         [FBLogger log:@"Timed out waiting for the testmanagerd protocol version exchange"];
-        // testmanagerdVersion is left as-is (diagnostic-only); a late reply harmlessly fills it
-        // in afterwards.
+        // testmanagerdVersion stays at its default (diagnostic-only).
       }
     } else {
       // Modern testmanagerd (Xcode 15+) has already negotiated named XCTCapabilities by the time
