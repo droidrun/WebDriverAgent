@@ -160,4 +160,12 @@ static const uint64_t kPtsMask      = ~(((uint64_t)1 << 63) | ((uint64_t)1 << 62
   XCTAssertNotNil([FBScreenCaptureConfiguration fb_machineModel]);
 }
 
+- (void)testPixelBudgetClampSurvivesHugeDimensions
+{
+  NSUInteger huge = (NSUInteger)1 << 32;
+  CGSize capped = [FBScreenCaptureConfiguration fb_sizeForWidth:huge height:huge pixelBudget:370944];
+  XCTAssertLessThanOrEqual(capped.width * capped.height, 370944.0);
+  XCTAssertGreaterThan(capped.width, 0.0);
+}
+
 @end

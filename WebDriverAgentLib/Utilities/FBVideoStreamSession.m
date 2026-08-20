@@ -76,10 +76,12 @@ static const NSInteger FBMaxLegacyIPhoneMajorVersion = 11;
 
 + (CGSize)fb_sizeForWidth:(NSUInteger)width height:(NSUInteger)height pixelBudget:(NSUInteger)budget
 {
-  if (0 == budget || 0 == width || 0 == height || width * height <= budget) {
+  // width * height <= budget  <=>  width <= budget / height (integer division; exact for
+  // positive integers). The division form cannot overflow, unlike the direct product.
+  if (0 == budget || 0 == width || 0 == height || width <= budget / height) {
     return CGSizeMake(width, height);
   }
-  double scale = sqrt((double)budget / (double)(width * height));
+  double scale = sqrt((double)budget / ((double)width * (double)height));
   // floor + even-align only ever shrink, so the scaled product stays within the budget
   NSUInteger scaledWidth = ((NSUInteger)floor((double)width * scale)) & ~(NSUInteger)1;
   NSUInteger scaledHeight = ((NSUInteger)floor((double)height * scale)) & ~(NSUInteger)1;

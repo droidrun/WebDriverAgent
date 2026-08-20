@@ -99,14 +99,17 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 {
   [FBLogger logFmt:@"Built at %s %s", __DATE__, __TIME__];
   self.exceptionHandler = [FBExceptionHandler new];
-  // /status is served off the main queue (it uses onControlQueue), but FBSDKVersion() and
-  // FBTestmanagerdVersion() cache their result behind a dispatch_once. Burn both once-tokens
-  // here, on the main thread, so the first request never resolves them from a connection queue.
-  FBSDKVersion();
-  FBTestmanagerdVersion();
   if (![self startHTTPServer]) {
     return;
   }
+  // /status is served off the main queue (it uses onControlQueue), but FBSDKVersion() and
+  // FBTestmanagerdVersion() cache their result behind a dispatch_once. Burn both once-tokens
+  // here, on the main thread, warmed only after the server has bound: FBTestmanagerdVersion()'s
+  // legacy branch waits (with a bounded timeout) on the daemon, and a degraded daemon must not
+  // be able to prevent the server from binding. An early request that races the warm-up just
+  // blocks on the dispatch_once for at most the bounded handshake.
+  FBSDKVersion();
+  FBTestmanagerdVersion();
 #if !TARGET_OS_WATCH
   [self initScreenshotsBroadcaster];
   // Listen permanently so broadcasts started from Control Center attach as well.
