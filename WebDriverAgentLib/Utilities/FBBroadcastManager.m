@@ -21,6 +21,7 @@
 #import "FBScreen.h"
 #import "FBUnattachedAppLauncher.h"
 #import "FBVideoStreamManager.h"
+#import "FBXCTestDaemonsProxy.h"
 #import "XCUIApplication+FBTouchAction.h"
 #import "XCUIApplication.h"
 #import "XCUIApplication+FBHelpers.h"
@@ -44,7 +45,11 @@ static uint64_t FBBroadcastNowMs(void)
 // session, whereas a missed synthesized tap is harmless and surfaces as a timeout to the caller.
 // `app` must be the app whose coordinate space produced `frame`: the synthesized event record is
 // stamped with the receiver's interfaceOrientation.
-static BOOL FBBroadcastTapFrameCenter(XCUIApplication *app, CGRect frame, NSError **error)
+// `waitForAck:NO` is for taps whose outcome the caller observes via state (e.g. does the alert
+// still exist on the next spin iteration) and which must not block inside a bounded spin: the
+// synthesis acknowledgement can take up to the event-synthesis timeout margin when the system
+// sheds the event, and that wait cannot be interrupted by a spinner's own, much shorter, deadline.
+static BOOL FBBroadcastTapFrameCenter(XCUIApplication *app, CGRect frame, BOOL waitForAck, NSError **error)
 {
   CGFloat scale = (CGFloat)[FBScreen scale];
   CGPoint center = CGPointMake(CGRectGetMidX(frame) * scale, CGRectGetMidY(frame) * scale);
@@ -53,7 +58,15 @@ static BOOL FBBroadcastTapFrameCenter(XCUIApplication *app, CGRect frame, NSErro
     @{@"type": @"pause", @"duration": @60},
     @{@"type": @"pointerUp", @"x": @(center.x), @"y": @(center.y)},
   ];
-  return [app fb_performMobilerunActions:tapActions scale:scale error:error];
+  if (waitForAck) {
+    return [app fb_performMobilerunActions:tapActions scale:scale error:error];
+  }
+  XCSynthesizedEventRecord *record = [app fb_mobilerunEventRecordFromActions:tapActions scale:scale error:error];
+  if (nil == record) {
+    return NO;
+  }
+  [FBXCTestDaemonsProxy synthesizeEventAsyncWithRecord:record];
+  return YES;
 }
 #endif
 static const NSTimeInterval STOP_TIMEOUT = 5.0;
@@ -70,6 +83,10 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
 @property (atomic) BOOL paused;
 /** YES while a start dance is driving the system UI (used to serialize concurrent starts). */
 @property (atomic) BOOL startInProgress;
+#if !TARGET_OS_SIMULATOR && !TARGET_OS_TV
+/** Monotonic ms timestamp of the last dismissal tap dispatch; guards the re-attempt cooldown. */
+@property (atomic) uint64_t lastAlertDismissalAttemptMs;
+#endif
 
 #if !TARGET_OS_SIMULATOR && !TARGET_OS_TV
 - (BOOL)performBroadcastStartWithTimeout:(NSTimeInterval)timeout
@@ -320,7 +337,7 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
   __block uint64_t lastTriggerMs = FBBroadcastNowMs();
   [[[[FBRunLoopSpinner new] timeout:CONFIRM_BUTTON_TIMEOUT] interval:0.25] spinUntilTrue:^BOOL{
     if ([self dismissBroadcastStoppedAlertWithLabels:dismissLabels]) {
-      [FBLogger logFmt:@"broadcast/start: dismissed stale Screen Broadcasting alert after %llums", FBBroadcastNowMs() - startedMs];
+      [FBLogger logFmt:@"broadcast/start: dispatched a dismissal tap for the stale Screen Broadcasting alert after %llums", FBBroadcastNowMs() - startedMs];
       return NO;
     }
     for (XCUIApplication *app in candidateApps) {
@@ -359,7 +376,7 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
   // A missed tap here is harmless (surfaces as a connect timeout below); see
   // FBBroadcastTapFrameCenter for why this goes through WDA's own event synthesis.
   NSError *tapError;
-  if (!FBBroadcastTapFrameCenter(runner, confirmFrame, &tapError)) {
+  if (!FBBroadcastTapFrameCenter(runner, confirmFrame, YES, &tapError)) {
     [FBBroadcastPickerHost dismiss];
     if (error) {
       *error = [NSError errorWithDomain:FBBroadcastManagerErrorDomain
@@ -405,6 +422,12 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
   if (!alert.exists) {
     return NO;
   }
+  // The dismissal tap is fire-and-forget (see FBBroadcastTapFrameCenter), so without a cooldown
+  // the next 0.25s spin iteration could re-tap the same coordinates while the alert's dismissal
+  // animation is still running, landing the extra tap on the UI underneath.
+  if (FBBroadcastNowMs() - self.lastAlertDismissalAttemptMs < 1000) {
+    return NO;
+  }
   NSArray<XCUIElement *> *buttons = [alert.buttons allElementsBoundByIndex];
   if (buttons.count != 2) {
     return NO;
@@ -430,7 +453,8 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
   // The frame is in SpringBoard's coordinate space, and the synthesized event record is stamped
   // with the RECEIVER's interface orientation - so the tap must be synthesized via the system
   // app, not the (possibly backgrounded, orientation-stale) runner.
-  return FBBroadcastTapFrameCenter(systemApp, frame, nil);
+  self.lastAlertDismissalAttemptMs = FBBroadcastNowMs();
+  return FBBroadcastTapFrameCenter(systemApp, frame, NO, nil);
 }
 #endif
 
@@ -464,7 +488,7 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
   NSArray<NSString *> *dismissLabels = dismissButtonLabels.count > 0 ? dismissButtonLabels : @[@"OK"];
   [[[[FBRunLoopSpinner new] timeout:3.0] interval:0.25] spinUntilTrue:^BOOL{
     if ([self dismissBroadcastStoppedAlertWithLabels:dismissLabels]) {
-      [FBLogger log:@"broadcast/stop: dismissed the Screen Broadcasting alert"];
+      [FBLogger log:@"broadcast/stop: dispatched a dismissal tap for the Screen Broadcasting alert"];
       return YES;
     }
     return NO;

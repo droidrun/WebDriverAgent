@@ -140,6 +140,15 @@ static void swizzledLaunchApp(id self, SEL _cmd, NSString *path, NSString *bundl
   return YES;
 }
 
++ (void)synthesizeEventAsyncWithRecord:(XCSynthesizedEventRecord *)record
+{
+  [[XCUIDevice.sharedDevice eventSynthesizer] synthesizeEvent:record completion:(id)^(BOOL result, NSError *invokeError) {
+    if (nil != invokeError) {
+      [FBLogger logFmt:@"Asynchronous event synthesis failed: %@", invokeError.localizedDescription];
+    }
+  }];
+}
+
 + (BOOL)openURL:(NSURL *)url usingApplication:(NSString *)bundleId error:(NSError *__autoreleasing*)error
 {
   XCTRunnerDaemonSession *session = [XCTRunnerDaemonSession sharedSession];
