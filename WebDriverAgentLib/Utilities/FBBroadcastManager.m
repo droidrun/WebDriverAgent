@@ -256,7 +256,7 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
       // A stale "Screen Broadcasting" alert left over from a previous broadcast's end can be
       // the very thing pinning isCaptured; clear it so the flag can drop.
       if ([self dismissBroadcastStoppedAlertWithLabels:dismissLabels]) {
-        [FBLogger log:@"broadcast/start: dismissed a stale Screen Broadcasting alert while waiting for the extension to connect"];
+        [FBLogger log:@"broadcast/start: dispatched a dismissal tap for the stale Screen Broadcasting alert while waiting out the active capture"];
       }
       return NO;
     }];
