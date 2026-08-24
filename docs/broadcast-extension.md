@@ -19,7 +19,7 @@ the legacy screenshot pipeline; each session reports its current origin via the 
 |---|---|---|
 | `/mobilerun/screencapture/broadcast/start` | POST | Starts a system broadcast targeting the bundled extension. Foregrounds the runner app, triggers `RPSystemBroadcastPickerView` and confirms the system sheet via UI automation, then waits for the extension to connect. Idempotent while connected. |
 | `/mobilerun/screencapture/broadcast` | GET | Broadcast status: `state` (`idle`/`connected`/`paused`), control port, extension id, last heartbeat (frames received, orientation, screen size) and the capture sessions with their active `source`. |
-| `/mobilerun/screencapture/broadcast/stop` | POST | Asks the extension to finish the broadcast. Live sessions fall back to the screenshot source with a forced key frame; clients do not need to reconnect. Also accepts `dismissButtonLabels` and `goToApplicationButtonLabels` (see below); it proactively clears the "Screen Broadcasting" alert after stopping. |
+| `/mobilerun/screencapture/broadcast/stop` | POST | Asks the extension to finish the broadcast. Live sessions fall back to the screenshot source with a forced key frame; clients do not need to reconnect. Also accepts `dismissButtonLabels` and `goToApplicationButtonLabels` (see below); on iOS 26+ it waits briefly (a couple of seconds) for the system's delayed "Screen Broadcasting" alert and clears it before returning. On older iOS versions the stop returns immediately. |
 
 `broadcast/start` body (all optional):
 
