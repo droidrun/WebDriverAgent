@@ -72,12 +72,22 @@ static const CGFloat DEFAULT_CAPTURE_QUALITY = 0.8;
       }
     }
   }
+  NSMutableArray<NSString *> *dismissButtonLabels = [NSMutableArray array];
+  id dismissLabelsArg = request.arguments[@"dismissButtonLabels"];
+  if ([dismissLabelsArg isKindOfClass:NSArray.class]) {
+    for (id label in (NSArray *)dismissLabelsArg) {
+      if ([label isKindOfClass:NSString.class] && [(NSString *)label length] > 0) {
+        [dismissButtonLabels addObject:label];
+      }
+    }
+  }
   NSNumber *restoreArg = request.arguments[@"restoreForegroundApp"];
   BOOL restoreForegroundApp = [restoreArg isKindOfClass:NSNumber.class] ? restoreArg.boolValue : YES;
 
   NSError *error;
   if (![FBBroadcastManager.sharedInstance startBroadcastWithTimeout:timeout
                                                 confirmButtonLabels:confirmButtonLabels
+                                                dismissButtonLabels:dismissButtonLabels
                                                restoreForegroundApp:restoreForegroundApp
                                                               error:&error]) {
     if ([error.domain isEqualToString:FBBroadcastManagerErrorDomain]) {
@@ -97,8 +107,18 @@ static const CGFloat DEFAULT_CAPTURE_QUALITY = 0.8;
 
 + (id<FBResponsePayload>)handleStopBroadcast:(FBRouteRequest *)request
 {
+  NSMutableArray<NSString *> *dismissButtonLabels = [NSMutableArray array];
+  id dismissLabelsArg = request.arguments[@"dismissButtonLabels"];
+  if ([dismissLabelsArg isKindOfClass:NSArray.class]) {
+    for (id label in (NSArray *)dismissLabelsArg) {
+      if ([label isKindOfClass:NSString.class] && [(NSString *)label length] > 0) {
+        [dismissButtonLabels addObject:label];
+      }
+    }
+  }
+
   NSError *error;
-  if (![FBBroadcastManager.sharedInstance stopBroadcastWithError:&error]) {
+  if (![FBBroadcastManager.sharedInstance stopBroadcastWithDismissButtonLabels:dismissButtonLabels error:&error]) {
     return FBResponseWithStatus([FBCommandStatus timeoutErrorWithMessage:error.localizedDescription traceback:nil]);
   }
   return FBResponseWithObject([FBBroadcastManager.sharedInstance statusDictionary]);

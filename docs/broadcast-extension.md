@@ -19,7 +19,7 @@ the legacy screenshot pipeline; each session reports its current origin via the 
 |---|---|---|
 | `/mobilerun/screencapture/broadcast/start` | POST | Starts a system broadcast targeting the bundled extension. Foregrounds the runner app, triggers `RPSystemBroadcastPickerView` and confirms the system sheet via UI automation, then waits for the extension to connect. Idempotent while connected. |
 | `/mobilerun/screencapture/broadcast` | GET | Broadcast status: `state` (`idle`/`connected`/`paused`), control port, extension id, last heartbeat (frames received, orientation, screen size) and the capture sessions with their active `source`. |
-| `/mobilerun/screencapture/broadcast/stop` | POST | Asks the extension to finish the broadcast. Live sessions fall back to the screenshot source with a forced key frame; clients do not need to reconnect. |
+| `/mobilerun/screencapture/broadcast/stop` | POST | Asks the extension to finish the broadcast. Live sessions fall back to the screenshot source with a forced key frame; clients do not need to reconnect. Also accepts `dismissButtonLabels` (see below); it proactively clears the "Screen Broadcasting" alert after stopping. |
 
 `broadcast/start` body (all optional):
 
@@ -27,6 +27,7 @@ the legacy screenshot pipeline; each session reports its current origin via the 
 {
   "timeout": 30,
   "confirmButtonLabels": ["Start Broadcast"],
+  "dismissButtonLabels": ["OK"],
   "restoreForegroundApp": true
 }
 ```
@@ -35,6 +36,10 @@ the legacy screenshot pipeline; each session reports its current origin via the 
 - `confirmButtonLabels` — labels to look for on the system confirmation sheet. Pass the
   localized label when the device language is not English (a button starting with "Start" is
   used as fallback).
+- `dismissButtonLabels` — labels of the button that dismisses the system's "Screen Broadcasting"
+  alert left behind by a previous broadcast's end (SpringBoard posts this on iOS 26 whenever a
+  broadcast terminates, and it otherwise blocks the picker dance). Defaults to `["OK"]`. Pass the
+  localized label when the device language is not English. Also accepted by `broadcast/stop`.
 - `restoreForegroundApp` — re-activate the previously active app after the broadcast starts
   (the start dance briefly foregrounds the runner app, ~2-3 s).
 
