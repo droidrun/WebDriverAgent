@@ -81,6 +81,15 @@ static const CGFloat DEFAULT_CAPTURE_QUALITY = 0.8;
       }
     }
   }
+  NSMutableArray<NSString *> *goToApplicationButtonLabels = [NSMutableArray array];
+  id goToApplicationLabelsArg = request.arguments[@"goToApplicationButtonLabels"];
+  if ([goToApplicationLabelsArg isKindOfClass:NSArray.class]) {
+    for (id label in (NSArray *)goToApplicationLabelsArg) {
+      if ([label isKindOfClass:NSString.class] && [(NSString *)label length] > 0) {
+        [goToApplicationButtonLabels addObject:label];
+      }
+    }
+  }
   NSNumber *restoreArg = request.arguments[@"restoreForegroundApp"];
   BOOL restoreForegroundApp = [restoreArg isKindOfClass:NSNumber.class] ? restoreArg.boolValue : YES;
 
@@ -88,6 +97,7 @@ static const CGFloat DEFAULT_CAPTURE_QUALITY = 0.8;
   if (![FBBroadcastManager.sharedInstance startBroadcastWithTimeout:timeout
                                                 confirmButtonLabels:confirmButtonLabels
                                                 dismissButtonLabels:dismissButtonLabels
+                                        goToApplicationButtonLabels:goToApplicationButtonLabels
                                                restoreForegroundApp:restoreForegroundApp
                                                               error:&error]) {
     if ([error.domain isEqualToString:FBBroadcastManagerErrorDomain]) {
@@ -116,9 +126,20 @@ static const CGFloat DEFAULT_CAPTURE_QUALITY = 0.8;
       }
     }
   }
+  NSMutableArray<NSString *> *goToApplicationButtonLabels = [NSMutableArray array];
+  id goToApplicationLabelsArg = request.arguments[@"goToApplicationButtonLabels"];
+  if ([goToApplicationLabelsArg isKindOfClass:NSArray.class]) {
+    for (id label in (NSArray *)goToApplicationLabelsArg) {
+      if ([label isKindOfClass:NSString.class] && [(NSString *)label length] > 0) {
+        [goToApplicationButtonLabels addObject:label];
+      }
+    }
+  }
 
   NSError *error;
-  if (![FBBroadcastManager.sharedInstance stopBroadcastWithDismissButtonLabels:dismissButtonLabels error:&error]) {
+  if (![FBBroadcastManager.sharedInstance stopBroadcastWithDismissButtonLabels:dismissButtonLabels
+                                                   goToApplicationButtonLabels:goToApplicationButtonLabels
+                                                                          error:&error]) {
     return FBResponseWithStatus([FBCommandStatus timeoutErrorWithMessage:error.localizedDescription traceback:nil]);
   }
   return FBResponseWithObject([FBBroadcastManager.sharedInstance statusDictionary]);
