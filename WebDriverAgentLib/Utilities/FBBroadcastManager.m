@@ -42,7 +42,9 @@ static uint64_t FBBroadcastNowMs(void)
 // Tap via WDA's own event synthesis instead of XCUIElement.tap: a missed XCUIElement tap (e.g.
 // the element disappeared in between) records an XCTest failure that tears down the whole test
 // session, whereas a missed synthesized tap is harmless and surfaces as a timeout to the caller.
-static BOOL FBBroadcastTapFrameCenter(XCUIApplication *runner, CGRect frame, NSError **error)
+// `app` must be the app whose coordinate space produced `frame`: the synthesized event record is
+// stamped with the receiver's interfaceOrientation.
+static BOOL FBBroadcastTapFrameCenter(XCUIApplication *app, CGRect frame, NSError **error)
 {
   CGFloat scale = (CGFloat)[FBScreen scale];
   CGPoint center = CGPointMake(CGRectGetMidX(frame) * scale, CGRectGetMidY(frame) * scale);
@@ -51,7 +53,7 @@ static BOOL FBBroadcastTapFrameCenter(XCUIApplication *runner, CGRect frame, NSE
     @{@"type": @"pause", @"duration": @60},
     @{@"type": @"pointerUp", @"x": @(center.x), @"y": @(center.y)},
   ];
-  return [runner fb_performMobilerunActions:tapActions scale:scale error:error];
+  return [app fb_performMobilerunActions:tapActions scale:scale error:error];
 }
 #endif
 static const NSTimeInterval STOP_TIMEOUT = 5.0;
@@ -76,12 +78,13 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
                     restoreForegroundApp:(BOOL)restoreForegroundApp
                                    error:(NSError **)error;
 // Dismisses the system's stale "Screen Broadcasting" alert (posted by SpringBoard whenever a
-// broadcast ends) when one is on screen. The alert blocks the broadcast picker dance until it is
-// dismissed. Only a button exactly matching one of the given labels is ever tapped, so the
-// alert's "Go to Application" action is structurally unreachable. Returns YES iff the alert was
-// found and successfully tapped.
-- (BOOL)dismissBroadcastStoppedAlertWithLabels:(NSArray<NSString *> *)labels
-                                         runner:(XCUIApplication *)runner;
+// broadcast ends) when one is on screen; it blocks the broadcast picker dance until dismissed.
+// The alert is matched structurally, not by its (localized) title: exactly two buttons
+// (dismiss + "Go to Application"), of which exactly one matches the configured dismiss labels.
+// Single-button alerts (a bare "OK" is too common a shape) and anything more complex are left
+// alone - misfiring on an unrelated system dialog would silently acknowledge it, which is worse
+// than letting the dance time out.
+- (BOOL)dismissBroadcastStoppedAlertWithLabels:(NSArray<NSString *> *)labels;
 #endif
 
 @end
@@ -223,9 +226,6 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
                                    error:(NSError **)error
 {
   NSArray<NSString *> *dismissLabels = dismissButtonLabels.count > 0 ? dismissButtonLabels : @[@"OK"];
-  // Hoisted so the already-captured branch below (which runs before the dance's own timing base
-  // is established) can also drive the dismissal tap.
-  XCUIApplication *runner = [[XCUIApplication alloc] initWithBundleIdentifier:(NSString *)NSBundle.mainBundle.bundleIdentifier];
 
   // The screen may already be captured by a live broadcast even though the extension is not
   // connected (it crashed, or it is between TCP reconnect attempts). Driving the picker on top
@@ -238,7 +238,7 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
       }
       // A stale "Screen Broadcasting" alert left over from a previous broadcast's end can be
       // the very thing pinning isCaptured; clear it so the flag can drop.
-      if ([self dismissBroadcastStoppedAlertWithLabels:dismissLabels runner:runner]) {
+      if ([self dismissBroadcastStoppedAlertWithLabels:dismissLabels]) {
         [FBLogger log:@"broadcast/start: dismissed a stale Screen Broadcasting alert while waiting for the extension to connect"];
       }
       return NO;
@@ -258,6 +258,7 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
   }
 
   uint64_t startedMs = FBBroadcastNowMs();
+  XCUIApplication *runner = [[XCUIApplication alloc] initWithBundleIdentifier:(NSString *)NSBundle.mainBundle.bundleIdentifier];
   XCUIApplication *previousApp = nil;
   BOOL runnerIsActive = UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
   // When the runner is already frontmost there is neither an app to restore nor a need for the
@@ -318,7 +319,7 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
   __block CGRect confirmFrame = CGRectZero;
   __block uint64_t lastTriggerMs = FBBroadcastNowMs();
   [[[[FBRunLoopSpinner new] timeout:CONFIRM_BUTTON_TIMEOUT] interval:0.25] spinUntilTrue:^BOOL{
-    if ([self dismissBroadcastStoppedAlertWithLabels:dismissLabels runner:runner]) {
+    if ([self dismissBroadcastStoppedAlertWithLabels:dismissLabels]) {
       [FBLogger logFmt:@"broadcast/start: dismissed stale Screen Broadcasting alert after %llums", FBBroadcastNowMs() - startedMs];
       return NO;
     }
@@ -391,29 +392,45 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
 }
 
 // Dismisses the system's stale "Screen Broadcasting" alert (posted by SpringBoard whenever a
-// broadcast ends) when one is on screen. The alert blocks the broadcast picker dance until it is
-// dismissed. Only a button exactly matching one of the given labels is ever tapped, so the
-// alert's "Go to Application" action is structurally unreachable.
+// broadcast ends) when one is on screen; it blocks the broadcast picker dance until dismissed.
+// The alert is matched structurally, not by its (localized) title: exactly two buttons
+// (dismiss + "Go to Application"), of which exactly one matches the configured dismiss labels.
+// Single-button alerts (a bare "OK" is too common a shape) and anything more complex are left
+// alone - misfiring on an unrelated system dialog would silently acknowledge it, which is worse
+// than letting the dance time out.
 - (BOOL)dismissBroadcastStoppedAlertWithLabels:(NSArray<NSString *> *)labels
-                                         runner:(XCUIApplication *)runner
 {
-  XCUIElement *alert = XCUIApplication.fb_systemApplication.alerts.firstMatch;
+  XCUIApplication *systemApp = XCUIApplication.fb_systemApplication;
+  XCUIElement *alert = systemApp.alerts.firstMatch;
   if (!alert.exists) {
     return NO;
   }
-  for (NSString *label in labels) {
-    XCUIElement *dismissButton = alert.buttons[label];
-    if (dismissButton.exists) {
-      CGRect frame = dismissButton.frame;
-      if (CGRectIsEmpty(frame)) {
-        continue;
-      }
-      if (FBBroadcastTapFrameCenter(runner, frame, nil)) {
-        return YES;
-      }
-    }
+  NSArray<XCUIElement *> *buttons = [alert.buttons allElementsBoundByIndex];
+  if (buttons.count != 2) {
+    return NO;
   }
-  return NO;
+  XCUIElement *dismissButton = nil;
+  for (XCUIElement *button in buttons) {
+    if (![labels containsObject:button.label]) {
+      continue;
+    }
+    if (nil != dismissButton) {
+      // Both buttons match the dismiss labels - ambiguous, not the alert we expect.
+      return NO;
+    }
+    dismissButton = button;
+  }
+  if (nil == dismissButton) {
+    return NO;
+  }
+  CGRect frame = dismissButton.frame;
+  if (CGRectIsEmpty(frame)) {
+    return NO;
+  }
+  // The frame is in SpringBoard's coordinate space, and the synthesized event record is stamped
+  // with the RECEIVER's interface orientation - so the tap must be synthesized via the system
+  // app, not the (possibly backgrounded, orientation-stale) runner.
+  return FBBroadcastTapFrameCenter(systemApp, frame, nil);
 }
 #endif
 
@@ -445,9 +462,8 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
   // behind, so proactively clear it here instead of waiting for the next start dance to hit it.
   // This never affects the return value below.
   NSArray<NSString *> *dismissLabels = dismissButtonLabels.count > 0 ? dismissButtonLabels : @[@"OK"];
-  XCUIApplication *runner = [[XCUIApplication alloc] initWithBundleIdentifier:(NSString *)NSBundle.mainBundle.bundleIdentifier];
   [[[[FBRunLoopSpinner new] timeout:3.0] interval:0.25] spinUntilTrue:^BOOL{
-    if ([self dismissBroadcastStoppedAlertWithLabels:dismissLabels runner:runner]) {
+    if ([self dismissBroadcastStoppedAlertWithLabels:dismissLabels]) {
       [FBLogger log:@"broadcast/stop: dismissed the Screen Broadcasting alert"];
       return YES;
     }
