@@ -119,6 +119,11 @@ static const char *QUEUE_NAME = "Screen Capture Encoder Queue";
     return nil;
   }
 
+  // Read outside the sessions lock: XCUIScreen goes through the automation machinery, and if it
+  // ever wedges it must not take the monitor down with it — the control-marked capture routes
+  // (stop/list/get/keyframe) block on this same lock and are supposed to stay wedge-immune.
+  long long mainScreenID = [XCUIScreen.mainScreen displayID];
+
   NSUInteger generation = 0;
   BOOL abortedByStopAll = NO;
   @synchronized (self.sessions) {
@@ -130,7 +135,7 @@ static const char *QUEUE_NAME = "Screen Capture Encoder Queue";
     } else {
       self.pendingStarts -= 1;
       self.sessions[@(identifier)] = session;
-      self.mainScreenID = [XCUIScreen.mainScreen displayID];
+      self.mainScreenID = mainScreenID;
       if (!self.isStreaming) {
         self.isStreaming = YES;
         self.loopGeneration += 1;

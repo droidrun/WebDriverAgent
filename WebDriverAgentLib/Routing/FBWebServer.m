@@ -25,6 +25,7 @@
 #import "FBRouteRequest.h"
 #import "FBRuntimeUtils.h"
 #import "FBSession.h"
+#import "FBSessionCommands.h"
 #import "FBUnknownCommands.h"
 #import "FBConfiguration.h"
 #import "FBLogger.h"
@@ -109,17 +110,19 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 #endif
 
   self.keepAlive = YES;
-  // /status is served off the main queue (it uses onControlQueue), but FBSDKVersion() and
-  // FBTestmanagerdVersion() cache their result behind a dispatch_once. Burn both once-tokens
-  // here, on the main thread, warmed only after the server has bound: FBTestmanagerdVersion()'s
-  // legacy branch waits (with a bounded timeout) on the daemon, and a degraded daemon must not
-  // be able to prevent the server from binding. An early request that races the warm-up just
-  // blocks on the dispatch_once for at most the bounded handshake. Warmed only after
-  // initialization is complete and keepAlive is set, so a shutdown that arrives while the
-  // bounded legacy handshake spins the run loop simply clears keepAlive via stopServing and the
-  // serving loop below never starts.
+  // /status is served off the main queue (it uses onControlQueue), but FBSDKVersion(),
+  // FBTestmanagerdVersion() and FBSessionCommands.cachedDeviceInfo cache their result behind a
+  // dispatch_once. Burn the once-tokens here, on the main thread (UIDevice, read by
+  // cachedDeviceInfo, is formally main-thread-only UIKit API), warmed only after the server has
+  // bound: FBTestmanagerdVersion()'s legacy branch waits (with a bounded timeout) on the daemon,
+  // and a degraded daemon must not be able to prevent the server from binding. An early request
+  // that races the warm-up just blocks on the dispatch_once for at most the bounded handshake.
+  // Warmed only after initialization is complete and keepAlive is set, so a shutdown that
+  // arrives while the bounded legacy handshake spins the run loop simply clears keepAlive via
+  // stopServing and the serving loop below never starts.
   FBSDKVersion();
   FBTestmanagerdVersion();
+  [FBSessionCommands cachedDeviceInfo];
   NSRunLoop *runLoop = [NSRunLoop mainRunLoop];
   while (self.keepAlive) {
     @try {
