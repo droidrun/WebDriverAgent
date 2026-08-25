@@ -87,6 +87,13 @@ typedef NS_ENUM(NSInteger, FBVideoStreamManagerError) {
 - (nullable FBVideoStreamSession *)startSessionWithConfiguration:(FBScreenCaptureConfiguration *)configuration
                                                           error:(NSError **)error
 {
+  // Read before any state is reserved or bound: XCUIScreen goes through the automation
+  // machinery, and if it ever wedges it must strand nothing — no sessions-monitor hold (the
+  // control-marked capture routes stop/list/get/keyframe block on that lock and are supposed
+  // to stay wedge-immune), no pendingStarts reservation, and no bound-but-uninserted session
+  // that stopAllSessions cannot see or stop.
+  long long mainScreenID = [XCUIScreen.mainScreen displayID];
+
   NSUInteger identifier;
   BOOL shouldStartLoop = NO;
   BOOL autoAssignPort = (0 == configuration.port);
@@ -126,12 +133,6 @@ typedef NS_ENUM(NSInteger, FBVideoStreamManagerError) {
     }
     return nil;
   }
-
-  // Read outside the sessions lock: XCUIScreen goes through the automation machinery, and if it
-  // ever wedges it must not take the monitor down with it — the control-marked capture routes
-  // (stop/list/get/keyframe) block on this same lock and are supposed to stay wedge-immune.
-  // Read unconditionally; the (rare) stop-all abort path below just discards it.
-  long long mainScreenID = [XCUIScreen.mainScreen displayID];
 
   NSUInteger generation = 0;
   BOOL abortedByStopAll = NO;
