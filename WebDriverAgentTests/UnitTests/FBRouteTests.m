@@ -310,8 +310,10 @@ static atomic_int gSpinningProbeCompletions;
   // handler; without the automation funnel a nested run loop drain would let the second
   // handler execute reentrantly inside the first (depth 2). With the funnel, the second
   // request blocks on its own connection queue until the first finishes on main (depth 1).
-  // The 0.3 s gap gives the first request time to reach its handler even on a loaded runner,
-  // while the probe's 1.0 s spin keeps the second request well inside the first's spin window.
+  // The 0.3 s gap lets the first request get through the server and enqueued at the funnel
+  // before the second fires, even on a loaded runner (the handler itself only starts once the
+  // wait loop below spins the run loop), while the probe's 1.0 s spin keeps the second request
+  // well inside the first's spin window.
   [self fireRequestForPath:@"/probe/spinning"];
   [NSThread sleepForTimeInterval:0.3];
   [self fireRequestForPath:@"/probe/spinning"];

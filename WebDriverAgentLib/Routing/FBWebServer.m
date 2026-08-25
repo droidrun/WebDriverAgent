@@ -116,7 +116,9 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
   // cachedDeviceInfo, is formally main-thread-only UIKit API), warmed only after the server has
   // bound: FBTestmanagerdVersion()'s legacy branch waits (with a bounded timeout) on the daemon,
   // and a degraded daemon must not be able to prevent the server from binding. An early request
-  // that races the warm-up just blocks on the dispatch_once for at most the bounded handshake.
+  // that races the warm-up just blocks on the dispatch_once for at most the bounded handshake —
+  // or, if it wins the race, runs the once-body itself off-main: the same exposure every /status
+  // request had before the snapshot, now at most once.
   // Warmed only after initialization is complete and keepAlive is set, so a shutdown that
   // arrives while the bounded legacy handshake spins the run loop simply clears keepAlive via
   // stopServing and the serving loop below never starts.

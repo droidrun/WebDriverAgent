@@ -30,6 +30,14 @@ static const NSTimeInterval FAILURE_BACKOFF_MIN = 1.0;
 static const NSTimeInterval FAILURE_BACKOFF_MAX = 10.0;
 static const char *QUEUE_NAME = "Screen Capture Encoder Queue";
 
+static NSString *const FBVideoStreamManagerErrorDomain = @"com.facebook.WebDriverAgent.FBVideoStreamManager";
+// No handler switches on these yet (they surface as unknown-error responses), but distinct
+// codes keep the two start-failure modes distinguishable by more than the message text.
+typedef NS_ENUM(NSInteger, FBVideoStreamManagerError) {
+  FBVideoStreamManagerErrorSessionLimitReached = 1,
+  FBVideoStreamManagerErrorStoppedWhileStarting = 2,
+};
+
 @interface FBVideoStreamManager ()
 
 @property (nonatomic) dispatch_queue_t backgroundQueue;
@@ -90,8 +98,8 @@ static const char *QUEUE_NAME = "Screen Capture Encoder Queue";
     // and exceed MAX_SESSIONS.
     if (self.sessions.count + self.pendingStarts >= MAX_SESSIONS) {
       if (error) {
-        *error = [NSError errorWithDomain:@"com.facebook.WebDriverAgent.FBVideoStreamManager"
-                                     code:1
+        *error = [NSError errorWithDomain:FBVideoStreamManagerErrorDomain
+                                     code:FBVideoStreamManagerErrorSessionLimitReached
                                  userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"The maximum number of concurrent screen capture sessions (%@) has been reached", @(MAX_SESSIONS)]}];
       }
       return nil;
@@ -122,6 +130,7 @@ static const char *QUEUE_NAME = "Screen Capture Encoder Queue";
   // Read outside the sessions lock: XCUIScreen goes through the automation machinery, and if it
   // ever wedges it must not take the monitor down with it — the control-marked capture routes
   // (stop/list/get/keyframe) block on this same lock and are supposed to stay wedge-immune.
+  // Read unconditionally; the (rare) stop-all abort path below just discards it.
   long long mainScreenID = [XCUIScreen.mainScreen displayID];
 
   NSUInteger generation = 0;
@@ -157,8 +166,8 @@ static const char *QUEUE_NAME = "Screen Capture Encoder Queue";
   if (abortedByStopAll) {
     [session stop];
     if (error) {
-      *error = [NSError errorWithDomain:@"com.facebook.WebDriverAgent.FBVideoStreamManager"
-                                   code:1
+      *error = [NSError errorWithDomain:FBVideoStreamManagerErrorDomain
+                                   code:FBVideoStreamManagerErrorStoppedWhileStarting
                                userInfo:@{NSLocalizedDescriptionKey: @"The screen capture session was stopped while it was starting"}];
     }
     return nil;
