@@ -47,8 +47,8 @@
     [[FBRoute POST:@"/wda/apps/state"] respondWithTarget:self action:@selector(handleSessionAppState:)],
     [[FBRoute GET:@"/wda/apps/list"] respondWithTarget:self action:@selector(handleGetActiveAppsList:)],
     [[FBRoute GET:@""] respondWithTarget:self action:@selector(handleGetActiveSession:)],
-    [[FBRoute DELETE:@""] respondWithTarget:self action:@selector(handleDeleteSession:)],
-    [[[FBRoute GET:@"/status"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleGetStatus:)],
+    [[FBRoute DELETE:@""].standalone respondWithTarget:self action:@selector(handleDeleteSession:)],
+    [[FBRoute GET:@"/status"].withoutSession.standalone respondWithTarget:self action:@selector(handleGetStatus:)],
 
     // Health check might modify simulator state so it should only be called in-between testing sessions
     [[FBRoute GET:@"/wda/healthcheck"].withoutSession respondWithTarget:self action:@selector(handleGetHealthCheck:)],
@@ -89,9 +89,7 @@
 
 + (id<FBResponsePayload>)handleCreateSession:(FBRouteRequest *)request
 {
-  if (nil != FBSession.activeSession) {
-    [FBSession.activeSession kill];
-  }
+  [FBSession killActiveSessionAndWaitForTeardown];
 
   NSDictionary<NSString *, id> *capabilities;
   id<FBResponsePayload> errorResponse = [self capabilitiesFromCreateSessionRequest:request
@@ -310,6 +308,9 @@
   }
   if (nil != capabilities[FB_SETTING_WAIT_FOR_IDLE_TIMEOUT]) {
     FBConfiguration.sharedInstance.waitForIdleTimeout = [capabilities[FB_SETTING_WAIT_FOR_IDLE_TIMEOUT] doubleValue];
+  }
+  if (nil != capabilities[FB_SETTING_ACCESSIBILITY_DEADLINE]) {
+    FBConfiguration.sharedInstance.accessibilityDeadline = [capabilities[FB_SETTING_ACCESSIBILITY_DEADLINE] doubleValue];
   }
   if (nil == capabilities[FB_CAP_FORCE_SIMULATOR_SOFTWARE_KEYBOARD_PRESENCE] ||
       [capabilities[FB_CAP_FORCE_SIMULATOR_SOFTWARE_KEYBOARD_PRESENCE] boolValue]) {

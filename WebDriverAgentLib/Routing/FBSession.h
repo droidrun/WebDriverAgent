@@ -17,6 +17,12 @@ NS_ASSUME_NONNULL_BEGIN
 extern NSString* const FB_SAFARI_BUNDLE_ID;
 
 /**
+ Posted (synchronously, on whatever thread calls -kill) once a session has been torn down. The
+ notification's object is the FBSession instance that was killed - see -identifier.
+ */
+extern NSString* const FBSessionWasKilledNotification;
+
+/**
  Class that represents testing session
  */
 @interface FBSession : NSObject
@@ -43,6 +49,13 @@ extern NSString* const FB_SAFARI_BUNDLE_ID;
 @property (nonatomic, readonly) NSMutableDictionary<NSNumber *, NSMutableDictionary<NSString *, NSNumber *> *> *elementsVisibilityCache;
 
 + (nullable instancetype)activeSession;
+
+/**
+ Kills the active session, if any, and blocks until its teardown - including one already started
+ by a concurrent caller - is fully finished. Call this before preparing/launching a replacement
+ application, so it can't race a still-in-progress termination of the outgoing one.
+ */
++ (void)killActiveSessionAndWaitForTeardown;
 
 /**
  Fetches session for given identifier.

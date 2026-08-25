@@ -11,7 +11,8 @@
 #import <mach/mach_time.h>
 @import UniformTypeIdentifiers;
 
-#import "GCDAsyncSocket.h"
+// Textual import, not `@import Network;` - see the comment in FBTCPSocket.h.
+#import <Network/Network.h>
 #import "FBConfiguration.h"
 #import "FBLogger.h"
 #import "FBScreenshot.h"
@@ -36,7 +37,7 @@ static NSUInteger FBNormalizedMjpegFramerate(NSUInteger framerate)
 @interface FBMjpegServer()
 
 @property (nonatomic, readonly) dispatch_queue_t backgroundQueue;
-@property (nonatomic, readonly) NSMutableArray<GCDAsyncSocket *> *listeningClients;
+@property (nonatomic, readonly) NSMutableArray<nw_connection_t> *listeningClients;
 @property (nonatomic, readonly) FBImageProcessor *imageProcessor;
 @property (nonatomic, readonly) long long mainScreenID;
 @property (nonatomic, assign) NSUInteger consecutiveScreenshotFailures;
@@ -148,9 +149,8 @@ static NSUInteger FBNormalizedMjpegFramerate(NSUInteger framerate)
       return;
     }
     NSUInteger clientCount = self.listeningClients.count;
-    for (GCDAsyncSocket *client in self.listeningClients) {
-      // Slow clients should fail/close instead of buffering indefinitely.
-      [client writeData:chunk withTimeout:FRAME_TIMEOUT tag:0];
+    for (nw_connection_t client in self.listeningClients) {
+      [self.socket writeData:chunk toClient:client];
     }
     self.sentFramesCount++;
     self.sentBytesCount += chunk.length * clientCount;
@@ -164,14 +164,13 @@ static NSUInteger FBNormalizedMjpegFramerate(NSUInteger framerate)
   }
 }
 
-- (void)didClientConnect:(GCDAsyncSocket *)newClient
+- (void)didClientConnect:(nw_connection_t)newClient
 {
-  [FBLogger logFmt:@"Got screenshots broadcast client connection at %@:%d", newClient.connectedHost, newClient.connectedPort];
-  // Start broadcast only after there is any data from the client
-  [newClient readDataWithTimeout:-1 tag:0];
+  [FBLogger log:@"Got screenshots broadcast client connection"];
+  // FBTCPSocket already schedules the receive that -client:didReceiveData: relies on below.
 }
 
-- (void)didClientSendData:(GCDAsyncSocket *)client
+- (void)client:(nw_connection_t)client didReceiveData:(NSData *)data
 {
   @synchronized (self.listeningClients) {
     if ([self.listeningClients containsObject:client]) {
@@ -179,15 +178,15 @@ static NSUInteger FBNormalizedMjpegFramerate(NSUInteger framerate)
     }
   }
 
-  [FBLogger logFmt:@"Starting screenshots broadcast for the client at %@:%d", client.connectedHost, client.connectedPort];
+  [FBLogger log:@"Starting screenshots broadcast for the client"];
   NSString *streamHeader = [NSString stringWithFormat:@"HTTP/1.0 200 OK\r\nServer: %@\r\nConnection: close\r\nMax-Age: 0\r\nExpires: 0\r\nCache-Control: no-cache, private\r\nPragma: no-cache\r\nContent-Type: multipart/x-mixed-replace; boundary=--BoundaryString\r\n\r\n", SERVER_NAME];
-  [client writeData:(id)[streamHeader dataUsingEncoding:NSUTF8StringEncoding] withTimeout:-1 tag:0];
+  [self.socket writeData:(id)[streamHeader dataUsingEncoding:NSUTF8StringEncoding] toClient:client];
   @synchronized (self.listeningClients) {
     [self.listeningClients addObject:client];
   }
 }
 
-- (void)didClientDisconnect:(GCDAsyncSocket *)client
+- (void)didClientDisconnect:(nw_connection_t)client
 {
   @synchronized (self.listeningClients) {
     [self.listeningClients removeObject:client];
@@ -199,10 +198,10 @@ static NSUInteger FBNormalizedMjpegFramerate(NSUInteger framerate)
 {
   self.isStreaming = NO;
   @synchronized (self.listeningClients) {
-    NSArray<GCDAsyncSocket *> *clients = self.listeningClients.copy;
+    NSArray<nw_connection_t> *clients = self.listeningClients.copy;
     [self.listeningClients removeAllObjects];
-    for (GCDAsyncSocket *client in clients) {
-      [client disconnect];
+    for (nw_connection_t client in clients) {
+      nw_connection_cancel(client);
     }
   }
 }

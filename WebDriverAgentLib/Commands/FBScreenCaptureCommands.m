@@ -26,17 +26,17 @@ static const CGFloat DEFAULT_CAPTURE_QUALITY = 0.8;
 {
   return
   @[
-    // The broadcast routes must be registered before the '/:id' routes: RoutingHTTPServer
+    // The broadcast routes must be registered before the '/:id' routes: FBHTTPServer
     // matches routes in registration order, so 'GET /mobilerun/screencapture/broadcast' would
     // otherwise be swallowed by 'GET /mobilerun/screencapture/:id'.
     [[FBRoute POST:@"/mobilerun/screencapture/broadcast/start"] respondWithTarget:self action:@selector(handleStartBroadcast:)],
     [[FBRoute POST:@"/mobilerun/screencapture/broadcast/stop"] respondWithTarget:self action:@selector(handleStopBroadcast:)],
-    // Not marked onControlQueue: decorating a session-required route reads FBSession's static
-    // active-session state, which the automation queue writes without synchronization.
+    // Not marked standalone: decorating a session-required route reads FBSession's static
+    // active-session state, so it stays serialized behind the automation funnel.
     [[FBRoute GET:@"/mobilerun/screencapture/broadcast"] respondWithTarget:self action:@selector(handleGetBroadcastStatus:)],
     [[FBRoute POST:@"/mobilerun/screencapture/broadcast/start"].withoutSession respondWithTarget:self action:@selector(handleStartBroadcast:)],
     [[FBRoute POST:@"/mobilerun/screencapture/broadcast/stop"].withoutSession respondWithTarget:self action:@selector(handleStopBroadcast:)],
-    [[[FBRoute GET:@"/mobilerun/screencapture/broadcast"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleGetBroadcastStatus:)],
+    [[FBRoute GET:@"/mobilerun/screencapture/broadcast"].withoutSession.standalone respondWithTarget:self action:@selector(handleGetBroadcastStatus:)],
 
     [[FBRoute POST:@"/mobilerun/screencapture/start"] respondWithTarget:self action:@selector(handleStartScreenCapture:)],
     [[FBRoute POST:@"/mobilerun/screencapture/stop"] respondWithTarget:self action:@selector(handleStopAllScreenCapture:)],
@@ -46,11 +46,11 @@ static const CGFloat DEFAULT_CAPTURE_QUALITY = 0.8;
     [[FBRoute POST:@"/mobilerun/screencapture/:id/keyframe"] respondWithTarget:self action:@selector(handleRequestKeyFrame:)],
 
     [[FBRoute POST:@"/mobilerun/screencapture/start"].withoutSession respondWithTarget:self action:@selector(handleStartScreenCapture:)],
-    [[[FBRoute POST:@"/mobilerun/screencapture/stop"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleStopAllScreenCapture:)],
-    [[[FBRoute GET:@"/mobilerun/screencapture"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleListScreenCapture:)],
-    [[[FBRoute GET:@"/mobilerun/screencapture/:id"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleGetScreenCapture:)],
-    [[[FBRoute POST:@"/mobilerun/screencapture/:id/stop"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleStopScreenCapture:)],
-    [[[FBRoute POST:@"/mobilerun/screencapture/:id/keyframe"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleRequestKeyFrame:)],
+    [[FBRoute POST:@"/mobilerun/screencapture/stop"].withoutSession.standalone respondWithTarget:self action:@selector(handleStopAllScreenCapture:)],
+    [[FBRoute GET:@"/mobilerun/screencapture"].withoutSession.standalone respondWithTarget:self action:@selector(handleListScreenCapture:)],
+    [[FBRoute GET:@"/mobilerun/screencapture/:id"].withoutSession.standalone respondWithTarget:self action:@selector(handleGetScreenCapture:)],
+    [[FBRoute POST:@"/mobilerun/screencapture/:id/stop"].withoutSession.standalone respondWithTarget:self action:@selector(handleStopScreenCapture:)],
+    [[FBRoute POST:@"/mobilerun/screencapture/:id/keyframe"].withoutSession.standalone respondWithTarget:self action:@selector(handleRequestKeyFrame:)],
   ];
 }
 

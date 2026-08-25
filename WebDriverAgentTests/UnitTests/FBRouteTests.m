@@ -123,24 +123,24 @@
   XCTAssertEqualObjects(route.path, @"/");
 }
 
-- (void)testControlQueueFlagDefaultsToNo
+- (void)testStandaloneFlagDefaultsToNo
 {
   FBRoute *route = [[FBRoute GET:@"/status"].withoutSession respondWithTarget:self action:@selector(description)];
-  XCTAssertFalse(route.usesControlQueue);
+  XCTAssertFalse(route.isStandalone);
 }
 
-- (void)testOnControlQueueSurvivesRespondWithTarget
+- (void)testStandaloneSurvivesRespondWithTarget
 {
-  FBRoute *route = [[[FBRoute GET:@"/status"].withoutSession onControlQueue] respondWithTarget:self action:@selector(description)];
-  XCTAssertTrue(route.usesControlQueue);
+  FBRoute *route = [[FBRoute GET:@"/status"].withoutSession.standalone respondWithTarget:self action:@selector(description)];
+  XCTAssertTrue(route.isStandalone);
 }
 
-- (void)testOnControlQueueSurvivesRespondWithBlock
+- (void)testStandaloneSurvivesRespondWithBlock
 {
-  FBRoute *route = [[[FBRoute POST:@"/probe"] onControlQueue] respondWithBlock:^ id<FBResponsePayload> (FBRouteRequest *request) {
+  FBRoute *route = [[FBRoute POST:@"/probe"].standalone respondWithBlock:^ id<FBResponsePayload> (FBRouteRequest *request) {
     return nil;
   }];
-  XCTAssertTrue(route.usesControlQueue);
+  XCTAssertTrue(route.isStandalone);
 }
 
 + (id<FBResponsePayload>)dummyHandler:(FBRouteRequest *)request
@@ -153,7 +153,7 @@
 #import <stdatomic.h>
 #import "FBCommandHandler.h"
 #import "FBWebServer.h"
-#import "RoutingHTTPServer.h"
+#import "FBHTTPServer.h"
 
 static atomic_bool gControlProbeDone;
 static atomic_bool gControlProbeRanOffMain;
@@ -165,7 +165,7 @@ static atomic_int gSpinningProbeCompletions;
 
 @interface FBWebServer (DispatchTests)
 - (void)registerRouteHandlers:(NSArray *)commandHandlerClasses;
-- (RoutingHTTPServer *)server;
+- (FBHTTPServer *)server;
 @property (nonatomic, strong) dispatch_queue_t automationQueue;
 @end
 
@@ -182,7 +182,7 @@ static atomic_int gSpinningProbeCompletions;
 + (NSArray *)routes
 {
   return @[
-    [[[FBRoute GET:@"/probe/control"].withoutSession onControlQueue] respondWithBlock:^ id<FBResponsePayload> (FBRouteRequest *request) {
+    [[FBRoute GET:@"/probe/control"].withoutSession.standalone respondWithBlock:^ id<FBResponsePayload> (FBRouteRequest *request) {
       atomic_store(&gControlProbeRanOffMain, !NSThread.isMainThread);
       atomic_store(&gControlProbeDone, true);
       return FBResponseWithOK();
@@ -213,7 +213,7 @@ static atomic_int gSpinningProbeCompletions;
 
 @interface FBWebServerDispatchTests : XCTestCase
 @property (nonatomic, strong) FBWebServer *webServer;
-@property (nonatomic, strong) RoutingHTTPServer *httpServer;
+@property (nonatomic, strong) FBHTTPServer *httpServer;
 @property (nonatomic, assign) UInt16 port;
 @end
 
@@ -231,17 +231,19 @@ static atomic_int gSpinningProbeCompletions;
   atomic_store(&gSpinningProbeCompletions, 0);
 
   self.webServer = [FBWebServer new];
-  // startHTTPServer (unused by this test, see below) is normally what creates this; wire it
-  // up manually since automation routes now funnel through it.
+  // startHTTPServer (unused by this test, see below) is normally what creates these; wire them
+  // up manually since automation routes are invoked on the funnel (the server's routeQueue).
   self.webServer.automationQueue = dispatch_queue_create("com.facebook.WebDriverAgent.test-automation-funnel", DISPATCH_QUEUE_SERIAL);
-  self.httpServer = [RoutingHTTPServer new];
+  self.httpServer = [FBHTTPServer new];
+  [self.httpServer setRouteQueue:self.webServer.automationQueue];
   // Inject the server so route registration can be exercised without booting the full agent
   [self.webServer setValue:self.httpServer forKey:@"server"];
   [self.webServer registerRouteHandlers:@[FBDispatchProbeCommands.class]];
-  [self.httpServer setPort:0];
+  self.httpServer.port = 0;
   NSError *error;
   XCTAssertTrue([self.httpServer start:&error], @"%@", error);
-  self.port = [self.httpServer listeningPort];
+  // FBHTTPServer's own `port` stays 0 for an ephemeral bind; the socket knows the real one.
+  self.port = [[self.httpServer valueForKeyPath:@"socket.port"] unsignedShortValue];
 }
 
 - (void)tearDown
@@ -309,7 +311,7 @@ static atomic_int gSpinningProbeCompletions;
   // Fire two automation requests close together. The first spins the main run loop inside its
   // handler; without the automation funnel a nested run loop drain would let the second
   // handler execute reentrantly inside the first (depth 2). With the funnel, the second
-  // request blocks on its own connection queue until the first finishes on main (depth 1).
+  // request waits on the serial funnel queue until the first finishes on main (depth 1).
   [self fireRequestForPath:@"/probe/spinning"];
   [NSThread sleepForTimeInterval:0.1];
   [self fireRequestForPath:@"/probe/spinning"];

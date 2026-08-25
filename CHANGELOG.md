@@ -1,3 +1,51 @@
+## [16.8.0](https://github.com/appium/WebDriverAgent/compare/v16.7.3...v16.8.0) (2026-08-24)
+
+### Features
+
+* bound accessibility snapshot requests to avoid indefinite hangs ([#1214](https://github.com/appium/WebDriverAgent/issues/1214)) ([cd829eb](https://github.com/appium/WebDriverAgent/commit/cd829eb9725f57efbfb9538a073de059020ddd38))
+
+## [16.7.3](https://github.com/appium/WebDriverAgent/compare/v16.7.2...v16.7.3) (2026-08-24)
+
+### Bug Fixes
+
+* let /status, /screenshot, and DELETE /session API methods to bypass the dispatch queue ([#1222](https://github.com/appium/WebDriverAgent/issues/1222)) ([f99b011](https://github.com/appium/WebDriverAgent/commit/f99b0111bba6f5cceabbddf1f9f0144d69d8f168))
+
+## [16.7.2](https://github.com/appium/WebDriverAgent/compare/v16.7.1...v16.7.2) (2026-08-24)
+
+### Bug Fixes
+
+* harden FBHTTPServer/FBTCPSocket against races and protocol gaps ([#1224](https://github.com/appium/WebDriverAgent/issues/1224)) ([cf4bb2b](https://github.com/appium/WebDriverAgent/commit/cf4bb2b57b4d3a55ee4bbe8f860b00b0e7f5a326))
+
+## [16.7.1](https://github.com/appium/WebDriverAgent/compare/v16.7.0...v16.7.1) (2026-08-23)
+
+### Bug Fixes
+
+* return W3C-compliant JSON error for unmatched routes ([#1223](https://github.com/appium/WebDriverAgent/issues/1223)) ([c951a91](https://github.com/appium/WebDriverAgent/commit/c951a91c8202d3c875db04dd633d37b409c80e43))
+
+## [16.7.0](https://github.com/appium/WebDriverAgent/compare/v16.6.0...v16.7.0) (2026-08-22)
+
+### Features
+
+* unify HTTP server across iOS/tvOS/watchOS on Network.framework ([#1221](https://github.com/appium/WebDriverAgent/issues/1221)) ([cd741c5](https://github.com/appium/WebDriverAgent/commit/cd741c5cafe47d03635a88cc9296bbd5a841e773))
+
+## [16.6.0](https://github.com/appium/WebDriverAgent/compare/v16.5.1...v16.6.0) (2026-08-22)
+
+### Features
+
+* Add MJPEG screenshot streaming support to watchOS ([#1220](https://github.com/appium/WebDriverAgent/issues/1220)) ([c6dcf03](https://github.com/appium/WebDriverAgent/commit/c6dcf03096dd5faab83398f16fb772724fcc5220))
+
+## [16.5.1](https://github.com/appium/WebDriverAgent/compare/v16.5.0...v16.5.1) (2026-08-20)
+
+### Bug Fixes
+
+* add watchOS assets to GitHub release artifacts ([#1219](https://github.com/appium/WebDriverAgent/issues/1219)) ([ce5a9e8](https://github.com/appium/WebDriverAgent/commit/ce5a9e8af36747a72669c34b38bd39e495b57f5b))
+
+## [16.5.0](https://github.com/appium/WebDriverAgent/compare/v16.4.0...v16.5.0) (2026-08-20)
+
+### Features
+
+* Add watchOS support to the TS driver, functional tests, and release pipeline ([#1217](https://github.com/appium/WebDriverAgent/issues/1217)) ([b53bb8f](https://github.com/appium/WebDriverAgent/commit/b53bb8fbd03ea37fd3bfc4e3eca4d2c6765b9c9c))
+
 ## [16.4.0](https://github.com/appium/WebDriverAgent/compare/v16.3.0...v16.4.0) (2026-08-19)
 
 ### Features
