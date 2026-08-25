@@ -231,24 +231,27 @@ static BOOL _isTeardownInProgress = NO;
   // DELETE /session and session creation can now run concurrently, so a session already
   // superseded by a newer one can still reach here via a stale reference. Check-and-clear must be
   // atomic, else a belated -kill could null out the new session's pointer instead of its own.
+  // _isTeardownInProgress is published in the same critical section (with the condition lock
+  // held): were it set only after clearing the pointer, a concurrent
+  // +killActiveSessionAndWaitForTeardown could observe a nil session with no teardown to wait
+  // for and start a replacement whose app the still-running teardown then terminates.
+  NSCondition *teardownCondition = self.class.teardownCondition;
   BOOL wasActive;
+  [teardownCondition lock];
   @synchronized (self.class) {
     wasActive = (self == _activeSession);
     if (wasActive) {
       _activeSession = nil;
+      _isTeardownInProgress = YES;
     }
   }
+  [teardownCondition unlock];
   if (!wasActive) {
     // Someone else is already tearing this session down - wait for that to finish (bounded), so
     // we don't act as if it's gone (e.g. launch a new app) while its -terminate is still in flight.
     [self.class waitForActiveTeardownWithTimeout:FB_KILL_WAIT_TIMEOUT_SEC];
     return;
   }
-
-  NSCondition *teardownCondition = self.class.teardownCondition;
-  [teardownCondition lock];
-  _isTeardownInProgress = YES;
-  [teardownCondition unlock];
 
   @try {
     // Posted before teardown so pending HTTP requests for this session can stop waiting sooner.
@@ -408,6 +411,17 @@ static BOOL _isTeardownInProgress = NO;
 - (void)fb_terminateTestedApplicationWithTimeout:(NSTimeInterval)timeout
 {
   XCUIApplication *application = self.testedApplication;
+  if (NSThread.isMainThread) {
+    // Already on main (e.g. a session replacement via POST /session, whose handler runs on the
+    // main queue): dispatching to main and blocking on the semaphore below would deadlock until
+    // the timeout and then skip the termination entirely. Terminate inline instead.
+    @try {
+      [application terminate];
+    } @catch (NSException *e) {
+      [FBLogger logFmt:@"%@", e.description];
+    }
+    return;
+  }
   NSObject *lock = [NSObject new];
   __block BOOL isAllowedToTerminate = YES;
   dispatch_semaphore_t sem = dispatch_semaphore_create(0);

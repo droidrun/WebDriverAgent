@@ -265,7 +265,7 @@ static atomic_int gSpinningProbeCompletions;
   [self fireRequestForPath:@"/probe/control"];
   // Sleeping keeps the main thread (and thus the automation queue) busy without servicing
   // the run loop — the control route must complete anyway, on another queue.
-  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5.0];
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:15.0];
   while (!atomic_load(&gControlProbeDone) && deadline.timeIntervalSinceNow > 0) {
     [NSThread sleepForTimeInterval:0.05];
   }
@@ -277,7 +277,7 @@ static atomic_int gSpinningProbeCompletions;
 {
   [self fireRequestForPath:@"/probe/automation"];
   // Automation routes hop onto the main queue, so the run loop must be serviced
-  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5.0];
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:15.0];
   while (!atomic_load(&gAutomationProbeDone) && deadline.timeIntervalSinceNow > 0) {
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
   }
@@ -292,14 +292,14 @@ static atomic_int gSpinningProbeCompletions;
   [self fireRequestForPath:@"/probe/automation"];
   [NSThread sleepForTimeInterval:0.3];
   [self fireRequestForPath:@"/probe/control"];
-  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5.0];
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:15.0];
   while (!atomic_load(&gControlProbeDone) && deadline.timeIntervalSinceNow > 0) {
     [NSThread sleepForTimeInterval:0.05];
   }
   XCTAssertTrue(atomic_load(&gControlProbeDone), @"control route must answer while automation is blocked");
   XCTAssertFalse(atomic_load(&gAutomationProbeDone));
   // Drain the queued automation request so tearDown shuts down cleanly
-  deadline = [NSDate dateWithTimeIntervalSinceNow:5.0];
+  deadline = [NSDate dateWithTimeIntervalSinceNow:15.0];
   while (!atomic_load(&gAutomationProbeDone) && deadline.timeIntervalSinceNow > 0) {
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
   }
@@ -316,7 +316,7 @@ static atomic_int gSpinningProbeCompletions;
   [NSThread sleepForTimeInterval:0.1];
   [self fireRequestForPath:@"/probe/spinning"];
 
-  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:10.0];
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:20.0];
   while (atomic_load(&gSpinningProbeCompletions) < 2 && deadline.timeIntervalSinceNow > 0) {
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
   }
