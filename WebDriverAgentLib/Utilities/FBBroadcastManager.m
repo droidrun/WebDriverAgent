@@ -35,9 +35,13 @@ static const NSTimeInterval CONFIRM_BUTTON_TIMEOUT = 10.0;
 // active, so it is re-fired periodically until the confirmation sheet shows up.
 static const uint64_t PICKER_RETRIGGER_INTERVAL_MS = 2000;
 // How long the post-stop sweep waits for the delayed "Screen Broadcasting" alert to appear
-// before giving up on it, and the overall cap on the sweep (appearance wait plus dismissal).
-static const NSTimeInterval ALERT_APPEARANCE_GRACE_SEC = 2.0;
-static const NSTimeInterval ALERT_SWEEP_TIMEOUT_SEC = 5.0;
+// before giving up on it. SpringBoard publishes the alert well after the extension socket
+// closes, and the delay varies by device and iOS version: ~5s observed on iOS 26, and ~10s
+// (up to ~12s) on iOS 18 hardware.
+static const NSTimeInterval ALERT_APPEARANCE_GRACE_SEC = 15.0;
+// Additional budget, on top of the appearance wait, for the dismissal tap(s) to land and the
+// alert to be observed gone.
+static const NSTimeInterval ALERT_DISMISSAL_BUDGET_SEC = 5.0;
 
 static uint64_t FBBroadcastNowMs(void)
 {
@@ -114,6 +118,16 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
 // above: applies the re-attempt cooldown, verifies the button's frame, and dispatches the tap.
 - (BOOL)dismissBroadcastStoppedAlertWithLabels:(NSArray<NSString *> *)labels
                          goToApplicationLabels:(NSArray<NSString *> *)goToApplicationLabels;
+// Clears the "Screen Broadcasting" alert end to end: waits up to appearanceGraceSec for it to
+// appear at all, then keeps re-dispatching the dismissal tap until the alert is observed gone,
+// bounded overall by appearanceGraceSec plus ALERT_DISMISSAL_BUDGET_SEC. Pass 0 for
+// appearanceGraceSec to only act on an alert that is already on screen (a single existence
+// probe when there is none). Returns YES when an alert was seen during the sweep - regardless
+// of whether dismissing it succeeded. logContext prefixes the log lines, e.g. "broadcast/stop".
+- (BOOL)sweepBroadcastStoppedAlertWithDismissLabels:(NSArray<NSString *> *)dismissLabels
+                              goToApplicationLabels:(NSArray<NSString *> *)goToAppLabels
+                                 appearanceGraceSec:(NSTimeInterval)appearanceGraceSec
+                                         logContext:(NSString *)logContext;
 #endif
 
 @end
@@ -309,6 +323,13 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
   // runner from inside itself blocks on a self-quiescence wait that can only ever time out:
   // the waiting thread is the very main thread whose idleness is being awaited.
   if (!runnerIsActive) {
+    // A stale "Screen Broadcasting" alert blocks LaunchServices and XCTest foregrounding alike,
+    // so it must be cleared before the attempts, not discovered after they both time out. With
+    // no alert on screen this costs a single existence probe.
+    [self sweepBroadcastStoppedAlertWithDismissLabels:dismissLabels
+                                goToApplicationLabels:goToAppLabels
+                                   appearanceGraceSec:0
+                                           logContext:@"broadcast/start"];
     BOOL launched = [FBUnattachedAppLauncher launchAppWithBundleId:(NSString *)NSBundle.mainBundle.bundleIdentifier];
     BOOL foregrounded = launched && [[[[FBRunLoopSpinner new] timeout:2.0] interval:0.05] spinUntilTrue:^BOOL{
       return UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
@@ -320,6 +341,22 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
       foregrounded = [[[[FBRunLoopSpinner new] timeout:FOREGROUND_TIMEOUT] interval:0.05] spinUntilTrue:^BOOL{
         return UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
       }];
+    }
+    if (!foregrounded) {
+      // The delayed "Screen Broadcasting" alert of a recently ended broadcast can also land
+      // right in the middle of the dance and swallow the activation. When that - and only
+      // that - is what happened, clearing the alert and re-activating recovers the start.
+      BOOL alertWasBlocking = [self sweepBroadcastStoppedAlertWithDismissLabels:dismissLabels
+                                                          goToApplicationLabels:goToAppLabels
+                                                             appearanceGraceSec:0
+                                                                     logContext:@"broadcast/start"];
+      if (alertWasBlocking) {
+        [FBLogger log:@"broadcast/start: retrying the activation now that the Screen Broadcasting alert is cleared"];
+        [runner activate];
+        foregrounded = [[[[FBRunLoopSpinner new] timeout:FOREGROUND_TIMEOUT] interval:0.05] spinUntilTrue:^BOOL{
+          return UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
+        }];
+      }
     }
     if (!foregrounded) {
       if (error) {
@@ -495,6 +532,42 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
   self.lastAlertDismissalAttemptMs = FBBroadcastNowMs();
   return FBBroadcastTapFrameCenter(XCUIApplication.fb_systemApplication, frame, NO, nil);
 }
+
+// Survives both known failure modes: exiting once a dismissal tap is merely dispatched
+// (FBBroadcastTapFrameCenter's waitForAck:NO tap is fire-and-forget and can be shed by the
+// system, so the sweep must keep spinning on the matcher's OBSERVED state, not on the dispatch
+// call succeeding), and exiting before the alert - which SpringBoard publishes with a delay
+// AFTER the extension socket closes - has appeared at all. So: once the alert has been seen,
+// declare success only when it is next observed gone (retrying the dismissal tap in between,
+// paced by the 1s cooldown inside dismissBroadcastStoppedAlertWithLabels:goToApplicationLabels:);
+// until it has been seen, keep waiting out the appearance grace period rather than exiting on
+// the first (empty) read.
+- (BOOL)sweepBroadcastStoppedAlertWithDismissLabels:(NSArray<NSString *> *)dismissLabels
+                              goToApplicationLabels:(NSArray<NSString *> *)goToAppLabels
+                                 appearanceGraceSec:(NSTimeInterval)appearanceGraceSec
+                                         logContext:(NSString *)logContext
+{
+  uint64_t sweepStartedMs = FBBroadcastNowMs();
+  __block BOOL alertSeen = NO;
+  [[[[FBRunLoopSpinner new] timeout:(appearanceGraceSec + ALERT_DISMISSAL_BUDGET_SEC)] interval:0.25] spinUntilTrue:^BOOL{
+    XCUIElement *dismissButton = [self matchingDismissButtonForAlertWithDismissLabels:dismissLabels goToApplicationLabels:goToAppLabels];
+    if (nil != dismissButton) {
+      if (!alertSeen) {
+        alertSeen = YES;
+        [FBLogger logFmt:@"%@: the Screen Broadcasting alert appeared %llums into the sweep", logContext, FBBroadcastNowMs() - sweepStartedMs];
+      }
+      if ([self dismissBroadcastStoppedAlertWithLabels:dismissLabels goToApplicationLabels:goToAppLabels]) {
+        [FBLogger logFmt:@"%@: dispatched a dismissal tap for the Screen Broadcasting alert", logContext];
+      }
+      return NO;
+    }
+    if (alertSeen) {
+      return YES;
+    }
+    return (FBBroadcastNowMs() - sweepStartedMs) >= (uint64_t)(appearanceGraceSec * 1000);
+  }];
+  return alertSeen;
+}
 #endif
 
 - (BOOL)stopBroadcastWithError:(NSError **)error
@@ -506,7 +579,20 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
                  goToApplicationButtonLabels:(NSArray<NSString *> *)goToApplicationButtonLabels
                                         error:(NSError **)error
 {
+#if !TARGET_OS_SIMULATOR && !TARGET_OS_TV
+  NSArray<NSString *> *dismissLabels = dismissButtonLabels.count > 0 ? dismissButtonLabels : @[@"OK"];
+  NSArray<NSString *> *goToAppLabels = goToApplicationButtonLabels.count > 0 ? goToApplicationButtonLabels : @[@"Go to Application"];
+#endif
   if (!self.isExtensionConnected) {
+#if !TARGET_OS_SIMULATOR && !TARGET_OS_TV
+    // Nothing to stop, but a previous broadcast that ended without a stop call (a crash, or the
+    // runner being relaunched) can have left its alert on screen; clear it when it is there
+    // right now. Grace 0 keeps the idempotent-stop case a single existence probe.
+    [self sweepBroadcastStoppedAlertWithDismissLabels:dismissLabels
+                                goToApplicationLabels:goToAppLabels
+                                   appearanceGraceSec:0
+                                           logContext:@"broadcast/stop"];
+#endif
     return YES;
   }
   [self.controlServer sendStopBroadcast];
@@ -522,43 +608,14 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
     return NO;
   }
 #if !TARGET_OS_SIMULATOR && !TARGET_OS_TV
-  // The delayed "Screen Broadcasting" alert is an iOS 26 behavior; on older iOS the sweep below
-  // would only add stop latency waiting for an alert that never appears, so gate it here - the
-  // start dance's own dismissal (see performBroadcastStartWithTimeout:...) remains the safety
-  // net on every iOS version.
-  if (@available(iOS 26.0, *)) {
-    // Best-effort: a broadcast stop almost always leaves the stale "Screen Broadcasting" alert
-    // behind, so proactively clear it here instead of waiting for the next start dance to hit it.
-    // This never affects the return value below.
-    NSArray<NSString *> *dismissLabels = dismissButtonLabels.count > 0 ? dismissButtonLabels : @[@"OK"];
-    NSArray<NSString *> *goToAppLabels = goToApplicationButtonLabels.count > 0 ? goToApplicationButtonLabels : @[@"Go to Application"];
-    uint64_t sweepStartedMs = FBBroadcastNowMs();
-    __block BOOL alertSeen = NO;
-    // Survives both failure modes seen in review: exiting once a dismissal tap is merely
-    // dispatched (FBBroadcastTapFrameCenter's waitForAck:NO tap is fire-and-forget and can be
-    // shed by the system, so the sweep must keep spinning on the matcher's OBSERVED state, not
-    // on the dispatch call succeeding), and exiting before the alert - which SpringBoard
-    // publishes with a delay AFTER the extension socket closes - has appeared at all. So: once
-    // the alert has been seen, declare success only when it is next observed gone (retrying the
-    // dismissal tap in between, paced by the 1s cooldown inside
-    // dismissBroadcastStoppedAlertWithLabels:goToApplicationLabels:); until it has been seen,
-    // keep waiting out the appearance grace period rather than exiting on the first (empty)
-    // read.
-    [[[[FBRunLoopSpinner new] timeout:ALERT_SWEEP_TIMEOUT_SEC] interval:0.25] spinUntilTrue:^BOOL{
-      XCUIElement *dismissButton = [self matchingDismissButtonForAlertWithDismissLabels:dismissLabels goToApplicationLabels:goToAppLabels];
-      if (nil != dismissButton) {
-        alertSeen = YES;
-        if ([self dismissBroadcastStoppedAlertWithLabels:dismissLabels goToApplicationLabels:goToAppLabels]) {
-          [FBLogger log:@"broadcast/stop: dispatched a dismissal tap for the Screen Broadcasting alert"];
-        }
-        return NO;
-      }
-      if (alertSeen) {
-        return YES;
-      }
-      return (FBBroadcastNowMs() - sweepStartedMs) >= (uint64_t)(ALERT_APPEARANCE_GRACE_SEC * 1000);
-    }];
-  }
+  // Best-effort: a broadcast stop almost always leaves the stale "Screen Broadcasting" alert
+  // behind, so proactively clear it here instead of waiting for the next start dance to hit it.
+  // Not gated by iOS version: the delayed alert has been observed on iOS 18 (~10s, up to ~12s
+  // after the stop) and iOS 26 (~5s) alike. This never affects the return value below.
+  [self sweepBroadcastStoppedAlertWithDismissLabels:dismissLabels
+                              goToApplicationLabels:goToAppLabels
+                                 appearanceGraceSec:ALERT_APPEARANCE_GRACE_SEC
+                                         logContext:@"broadcast/stop"];
 #endif
   return YES;
 }
