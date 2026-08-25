@@ -89,19 +89,31 @@ NSString *const FB_SAFARI_BUNDLE_ID = @"com.apple.mobilesafari";
 
 @implementation FBSession
 
+// Control routes (e.g. /status) are served on their own connection queue and read this
+// static concurrently with main-queue writes in markSessionActive:/kill. All reads and
+// writes of _activeSession must go through the @synchronized (FBSession.class) accessors
+// below.
 static FBSession *_activeSession = nil;
 
 + (instancetype)activeSession
 {
-  return _activeSession;
+  @synchronized (FBSession.class) {
+    return _activeSession;
+  }
 }
 
 + (void)markSessionActive:(FBSession *)session
 {
-  if (_activeSession) {
-    [_activeSession kill];
+  FBSession *previousSession;
+  @synchronized (FBSession.class) {
+    previousSession = _activeSession;
   }
-  _activeSession = session;
+  if (previousSession) {
+    [previousSession kill];
+  }
+  @synchronized (FBSession.class) {
+    _activeSession = session;
+  }
 }
 
 + (instancetype)sessionWithIdentifier:(NSString *)identifier
@@ -109,10 +121,11 @@ static FBSession *_activeSession = nil;
   if (!identifier) {
     return nil;
   }
-  if (![identifier isEqualToString:_activeSession.identifier]) {
+  FBSession *activeSession = self.activeSession;
+  if (![identifier isEqualToString:activeSession.identifier]) {
     return nil;
   }
-  return _activeSession;
+  return activeSession;
 }
 
 + (instancetype)initWithApplication:(XCUIApplication *)application
@@ -169,7 +182,11 @@ static FBSession *_activeSession = nil;
 
 - (void)kill
 {
-  if (nil == _activeSession) {
+  BOOL wasActive;
+  @synchronized (FBSession.class) {
+    wasActive = (nil != _activeSession);
+  }
+  if (!wasActive) {
     return;
   }
 
@@ -195,7 +212,9 @@ static FBSession *_activeSession = nil;
     }
   }
 
-  _activeSession = nil;
+  @synchronized (FBSession.class) {
+    _activeSession = nil;
+  }
 }
 
 - (XCUIApplication *)activeApplication

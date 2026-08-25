@@ -26,6 +26,13 @@ NS_ASSUME_NONNULL_BEGIN
 + (BOOL)synthesizeEventWithRecord:(XCSynthesizedEventRecord *)record
                             error:(NSError *__autoreleasing*)error;
 
+/**
+ Dispatches the synthesized event without waiting for the acknowledgement. Use when the caller
+ verifies the outcome by observing state (so a lost acknowledgement must not block it); failures
+ are logged and otherwise ignored.
+ */
++ (void)synthesizeEventAsyncWithRecord:(XCSynthesizedEventRecord *)record;
+
 + (BOOL)openURL:(NSURL *)url usingApplication:(NSString *)bundleId error:(NSError **)error;
 + (BOOL)openDefaultApplicationForURL:(NSURL *)url error:(NSError **)error;
 

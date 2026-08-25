@@ -63,6 +63,11 @@
 
 @end
 
+// Bounds the legacy testmanagerd protocol-version exchange below. A daemon that never replies
+// (observed on some legacy configurations) must not be able to hang startup indefinitely; the
+// value is diagnostic-only, so timing out and moving on is safe.
+static const NSTimeInterval FBProtocolVersionExchangeTimeout = 30.0;
+
 @implementation XCPointerEvent (FBXcodeCompatibility)
 
 + (BOOL)fb_areKeyEventsSupported
@@ -85,12 +90,22 @@ NSInteger FBTestmanagerdVersion(void)
     id<XCTMessagingChannel_RunnerToDaemon> proxy = [FBXCTestDaemonsProxy testRunnerProxy];
     if ([(NSObject *)proxy respondsToSelector:@selector(_XCT_exchangeProtocolVersion:reply:)]) {
       id<FBXCTestManagerLegacyProtocolVersionExchanging> legacyProxy = (id<FBXCTestManagerLegacyProtocolVersionExchanging>)proxy;
-      [FBRunLoopSpinner spinUntilCompletion:^(void(^completion)(void)){
+      // The reply lands in a block-local so a late response (after the bounded wait below has
+      // given up and dispatch_once has completed) never writes the shared static while
+      // concurrent readers may be using it; late replies are simply ignored.
+      __block NSInteger exchangedVersion = 0;
+      BOOL exchanged = [FBRunLoopSpinner spinUntilCompletion:^(void(^completion)(void)){
         [legacyProxy _XCT_exchangeProtocolVersion:testmanagerdVersion reply:^(unsigned long long code) {
-          testmanagerdVersion = (NSInteger) code;
+          exchangedVersion = (NSInteger) code;
           completion();
         }];
-      }];
+      } timeout:FBProtocolVersionExchangeTimeout];
+      if (exchanged) {
+        testmanagerdVersion = exchangedVersion;
+      } else {
+        [FBLogger log:@"Timed out waiting for the testmanagerd protocol version exchange"];
+        // testmanagerdVersion stays at its default (diagnostic-only).
+      }
     } else {
       // Modern testmanagerd (Xcode 15+) has already negotiated named XCTCapabilities by the time
       // a daemon session exists, instead of a single scalar protocol version. There is no direct

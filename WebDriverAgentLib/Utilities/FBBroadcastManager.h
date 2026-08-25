@@ -55,23 +55,53 @@ typedef NS_ERROR_ENUM(FBBroadcastManagerErrorDomain, FBBroadcastManagerError) {
 
  @param timeout The overall time budget in seconds for the broadcast to reach the connected state
  @param confirmButtonLabels Labels to look for on the system confirmation sheet
+ @param dismissButtonLabels Labels for dismissing the system's stale "Screen Broadcasting" alert
+ that SpringBoard posts whenever a broadcast ends, which otherwise blocks the picker dance from
+ completing. Defaults to ["OK"] when empty/nil
+ @param goToApplicationButtonLabels Labels for the alert's other button. Together with
+ dismissButtonLabels this anchors the alert's identity: it is only treated as the Screen
+ Broadcasting alert, and auto-dismissed, when one button matches dismissButtonLabels and the
+ other matches this list. Defaults to ["Go to Application"] when empty/nil
  @param restoreForegroundApp YES to re-activate the previously active application afterwards
  @param error If there is an error, upon return contains an NSError describing the problem
  @return NO in case of a failure
  */
 - (BOOL)startBroadcastWithTimeout:(NSTimeInterval)timeout
               confirmButtonLabels:(NSArray<NSString *> *)confirmButtonLabels
+              dismissButtonLabels:(nullable NSArray<NSString *> *)dismissButtonLabels
+      goToApplicationButtonLabels:(nullable NSArray<NSString *> *)goToApplicationButtonLabels
              restoreForegroundApp:(BOOL)restoreForegroundApp
                             error:(NSError **)error;
 
 /**
  Asks the extension to finish the broadcast and waits for it to disconnect.
- Idempotent when no broadcast is running.
+ Idempotent when no broadcast is running. Equivalent to calling
+ stopBroadcastWithDismissButtonLabels:goToApplicationButtonLabels:error: with nil for both
+ label lists.
 
  @param error If there is an error, upon return contains an NSError describing the problem
  @return NO in case of a failure
  */
 - (BOOL)stopBroadcastWithError:(NSError **)error;
+
+/**
+ Asks the extension to finish the broadcast and waits for it to disconnect, then makes a
+ best-effort attempt to dismiss the system's stale "Screen Broadcasting" alert that SpringBoard
+ posts once the broadcast ends. Idempotent when no broadcast is running.
+
+ @param dismissButtonLabels Labels for dismissing the system's stale "Screen Broadcasting" alert.
+ Defaults to ["OK"] when empty/nil
+ @param goToApplicationButtonLabels Labels for the alert's other button. Together with
+ dismissButtonLabels this anchors the alert's identity: it is only treated as the Screen
+ Broadcasting alert, and auto-dismissed, when one button matches dismissButtonLabels and the
+ other matches this list. Defaults to ["Go to Application"] when empty/nil
+ @param error If there is an error, upon return contains an NSError describing the problem
+ @return NO in case of a failure. The alert-dismissal attempt is best-effort and never causes
+ this to return NO by itself
+ */
+- (BOOL)stopBroadcastWithDismissButtonLabels:(nullable NSArray<NSString *> *)dismissButtonLabels
+                 goToApplicationButtonLabels:(nullable NSArray<NSString *> *)goToApplicationButtonLabels
+                                        error:(NSError **)error;
 
 /** Notifies the manager that a capture session started (sends SESSION_ADD when connected). */
 - (void)notifySessionAdded:(FBVideoStreamSession *)session;

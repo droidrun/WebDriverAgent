@@ -9,6 +9,7 @@
 #import <XCTest/XCTest.h>
 
 #import "FBScrcpyPacket.h"
+#import "FBVideoStreamSession.h"
 
 // Mirrors the wire constants consumed by ios-wired/cmd/scrcpy-bridge/h264reader.go.
 static const uint64_t kFlagConfig   = (uint64_t)1 << 63;
@@ -111,6 +112,100 @@ static const uint64_t kPtsMask      = ~(((uint64_t)1 << 63) | ((uint64_t)1 << 62
   XCTAssertFalse(isConfig);
   XCTAssertTrue(isKeyFrame);
   XCTAssertEqual(pts, bigPts);
+}
+
+- (void)testDefaultPixelBudgetForLegacyIPhones
+{
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@"iPhone11,2"], (NSUInteger)370944);
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@"iPhone11,8"], (NSUInteger)370944);
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@"iPhone9,1"], (NSUInteger)370944);
+}
+
+- (void)testDefaultPixelBudgetForModernOrUnknownModels
+{
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@"iPhone12,1"], (NSUInteger)0);
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@"iPhone17,3"], (NSUInteger)0);
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@"iPad8,1"], (NSUInteger)0);
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@"AppleTV11,1"], (NSUInteger)0);
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@""], (NSUInteger)0);
+  XCTAssertEqual([FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:@"iPhoneX"], (NSUInteger)0);
+}
+
+- (void)testPixelBudgetClampPreservesAspectAndAlignment
+{
+  CGSize capped = [FBScreenCaptureConfiguration fb_sizeForWidth:562 height:1218 pixelBudget:370944];
+  XCTAssertLessThanOrEqual(capped.width * capped.height, 370944.0);
+  XCTAssertEqualWithAccuracy(capped.width / capped.height, 562.0 / 1218.0, 0.02);
+  XCTAssertEqual(((NSUInteger)capped.width) % 2, (NSUInteger)0);
+  XCTAssertEqual(((NSUInteger)capped.height) % 2, (NSUInteger)0);
+  XCTAssertGreaterThan(capped.width, 0.0);
+}
+
+- (void)testPixelBudgetLeavesSizesWithinBudgetAlone
+{
+  CGSize size = [FBScreenCaptureConfiguration fb_sizeForWidth:414 height:896 pixelBudget:370944];
+  XCTAssertEqual(size.width, 414.0);
+  XCTAssertEqual(size.height, 896.0);
+}
+
+- (void)testZeroPixelBudgetDisablesClamp
+{
+  CGSize size = [FBScreenCaptureConfiguration fb_sizeForWidth:5000 height:5000 pixelBudget:0];
+  XCTAssertEqual(size.width, 5000.0);
+  XCTAssertEqual(size.height, 5000.0);
+}
+
+- (void)testMachineModelIsNonNil
+{
+  XCTAssertNotNil([FBScreenCaptureConfiguration fb_machineModel]);
+}
+
+- (void)testPixelBudgetClampSurvivesHugeDimensions
+{
+  NSUInteger huge = (NSUInteger)1 << 32;
+  CGSize capped = [FBScreenCaptureConfiguration fb_sizeForWidth:huge height:huge pixelBudget:370944];
+  XCTAssertLessThanOrEqual(capped.width * capped.height, 370944.0);
+  XCTAssertGreaterThan(capped.width, 0.0);
+}
+
+- (void)testPixelBudgetClampHonorsBudgetForSkinnyDimensions
+{
+  CGSize capped = [FBScreenCaptureConfiguration fb_sizeForWidth:10000 height:2 pixelBudget:100];
+  XCTAssertLessThanOrEqual(capped.width * capped.height, 100.0);
+  XCTAssertGreaterThanOrEqual(capped.width, 2.0);
+  XCTAssertGreaterThanOrEqual(capped.height, 2.0);
+}
+
+- (void)testPixelBudgetClampAtMinimumBudget
+{
+  CGSize capped = [FBScreenCaptureConfiguration fb_sizeForWidth:5000 height:5000 pixelBudget:4];
+  XCTAssertEqual(capped.width, 2.0);
+  XCTAssertEqual(capped.height, 2.0);
+}
+
+- (void)testPixelBudgetArgumentParsing
+{
+  NSUInteger budget = 99;
+  XCTAssertTrue([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:nil deviceDefault:370944]);
+  XCTAssertEqual(budget, (NSUInteger)370944);
+  XCTAssertTrue([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@0 deviceDefault:370944]);
+  XCTAssertEqual(budget, (NSUInteger)0);
+  XCTAssertTrue([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@4 deviceDefault:0]);
+  XCTAssertEqual(budget, (NSUInteger)4);
+  XCTAssertTrue([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@370944.0 deviceDefault:0]);
+  XCTAssertEqual(budget, (NSUInteger)370944);
+}
+
+- (void)testPixelBudgetArgumentParsingRejectsMalformedValues
+{
+  NSUInteger budget = 0;
+  XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@"370944" deviceDefault:0]);
+  XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@(-1) deviceDefault:0]);
+  XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@(0.5) deviceDefault:0]);
+  XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@(-0.5) deviceDefault:0]);
+  XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@(2) deviceDefault:0]);
+  XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@(NAN) deviceDefault:0]);
+  XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@(INFINITY) deviceDefault:0]);
 }
 
 @end

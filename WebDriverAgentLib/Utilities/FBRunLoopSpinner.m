@@ -24,13 +24,25 @@ static const NSTimeInterval FBWaitInterval = 0.1;
 
 + (void)spinUntilCompletion:(void (^)(void(^completion)(void)))block
 {
+  [self spinUntilCompletion:block timeout:DBL_MAX];
+}
+
++ (BOOL)spinUntilCompletion:(void (^)(void(^completion)(void)))block timeout:(NSTimeInterval)timeout
+{
+  // The __block flag is moved to the heap when the completion block escapes, so a completion
+  // arriving after a timeout return still writes valid memory and is simply never read.
   __block volatile atomic_bool didFinish = false;
   block(^{
     atomic_fetch_or(&didFinish, true);
   });
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeout];
   while (!atomic_fetch_and(&didFinish, false)) {
+    if (deadline.timeIntervalSinceNow <= 0) {
+      return NO;
+    }
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:FBWaitInterval]];
   }
+  return YES;
 }
 
 - (instancetype)init

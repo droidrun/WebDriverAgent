@@ -21,6 +21,7 @@
 #import "FBScreen.h"
 #import "FBUnattachedAppLauncher.h"
 #import "FBVideoStreamManager.h"
+#import "FBXCTestDaemonsProxy.h"
 #import "XCUIApplication+FBTouchAction.h"
 #import "XCUIApplication.h"
 #import "XCUIApplication+FBHelpers.h"
@@ -33,17 +34,52 @@ static const NSTimeInterval CONFIRM_BUTTON_TIMEOUT = 10.0;
 // The picker press is dropped silently by the system when it fires before the scene is fully
 // active, so it is re-fired periodically until the confirmation sheet shows up.
 static const uint64_t PICKER_RETRIGGER_INTERVAL_MS = 2000;
+// How long the post-stop sweep waits for the delayed "Screen Broadcasting" alert to appear
+// before giving up on it, and the overall cap on the sweep (appearance wait plus dismissal).
+static const NSTimeInterval ALERT_APPEARANCE_GRACE_SEC = 2.0;
+static const NSTimeInterval ALERT_SWEEP_TIMEOUT_SEC = 5.0;
 
 static uint64_t FBBroadcastNowMs(void)
 {
   return clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) / NSEC_PER_MSEC;
+}
+
+// Tap via WDA's own event synthesis instead of XCUIElement.tap: a missed XCUIElement tap (e.g.
+// the element disappeared in between) records an XCTest failure that tears down the whole test
+// session, whereas a missed synthesized tap is harmless and surfaces as a timeout to the caller.
+// `app` must be the app whose coordinate space produced `frame`: the synthesized event record is
+// stamped with the receiver's interfaceOrientation.
+// `waitForAck:NO` is for taps whose outcome the caller observes via state (e.g. does the alert
+// still exist on the next spin iteration) and which must not block inside a bounded spin: the
+// synthesis acknowledgement can take up to the event-synthesis timeout margin when the system
+// sheds the event, and that wait cannot be interrupted by a spinner's own, much shorter, deadline.
+static BOOL FBBroadcastTapFrameCenter(XCUIApplication *app, CGRect frame, BOOL waitForAck, NSError **error)
+{
+  CGFloat scale = (CGFloat)[FBScreen scale];
+  CGPoint center = CGPointMake(CGRectGetMidX(frame) * scale, CGRectGetMidY(frame) * scale);
+  NSArray *tapActions = @[
+    @{@"type": @"pointerDown", @"x": @(center.x), @"y": @(center.y)},
+    @{@"type": @"pause", @"duration": @60},
+    @{@"type": @"pointerUp", @"x": @(center.x), @"y": @(center.y)},
+  ];
+  if (waitForAck) {
+    return [app fb_performMobilerunActions:tapActions scale:scale error:error];
+  }
+  XCSynthesizedEventRecord *record = [app fb_mobilerunEventRecordFromActions:tapActions scale:scale error:error];
+  if (nil == record) {
+    return NO;
+  }
+  [FBXCTestDaemonsProxy synthesizeEventAsyncWithRecord:record];
+  return YES;
 }
 #endif
 static const NSTimeInterval STOP_TIMEOUT = 5.0;
 
 @interface FBBroadcastManager () <FBBroadcastControlServerDelegate>
 
-@property (nonatomic, nullable) FBBroadcastControlServer *controlServer;
+// Read from connection queues (broadcast status route, sessionless capture-stop notifications)
+// while the main thread assigns/clears it - must stay atomic.
+@property (atomic, nullable) FBBroadcastControlServer *controlServer;
 @property (atomic, nullable, copy) NSDictionary *helloInfo;
 @property (atomic, nullable, copy) NSDictionary *lastHeartbeat;
 @property (atomic, nullable) NSDate *connectedAt;
@@ -51,12 +87,33 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
 @property (atomic) BOOL paused;
 /** YES while a start dance is driving the system UI (used to serialize concurrent starts). */
 @property (atomic) BOOL startInProgress;
+#if !TARGET_OS_SIMULATOR && !TARGET_OS_TV
+/** Monotonic ms timestamp of the last dismissal tap dispatch; guards the re-attempt cooldown. */
+@property (atomic) uint64_t lastAlertDismissalAttemptMs;
+#endif
 
 #if !TARGET_OS_SIMULATOR && !TARGET_OS_TV
 - (BOOL)performBroadcastStartWithTimeout:(NSTimeInterval)timeout
                      confirmButtonLabels:(NSArray<NSString *> *)confirmButtonLabels
+                     dismissButtonLabels:(NSArray<NSString *> *)dismissButtonLabels
+             goToApplicationButtonLabels:(NSArray<NSString *> *)goToApplicationButtonLabels
                     restoreForegroundApp:(BOOL)restoreForegroundApp
                                    error:(NSError **)error;
+// Finds, but does not tap, the dismiss button of the system's stale "Screen Broadcasting" alert
+// (posted by SpringBoard whenever a broadcast ends) when one is on screen. The alert is matched
+// structurally, not by its (localized) title: exactly two buttons, of which exactly one matches
+// dismissLabels and the OTHER matches goToAppLabels - the second button anchors the alert's
+// identity, since "exactly one of two buttons matches the dismiss labels" alone still matches
+// unrelated two-button prompts (e.g. "Settings" / "OK"). Both label lists are localizable via
+// the request arguments. Anything else - including two-button alerts whose second button is
+// unrecognized - is left alone; misfiring on an unrelated system dialog would silently
+// acknowledge it, which is worse than letting the dance time out.
+- (nullable XCUIElement *)matchingDismissButtonForAlertWithDismissLabels:(NSArray<NSString *> *)dismissLabels
+                                                    goToApplicationLabels:(NSArray<NSString *> *)goToAppLabels;
+// Dismisses the alert matched by matchingDismissButtonForAlertWithDismissLabels:goToApplicationLabels:
+// above: applies the re-attempt cooldown, verifies the button's frame, and dispatches the tap.
+- (BOOL)dismissBroadcastStoppedAlertWithLabels:(NSArray<NSString *> *)labels
+                         goToApplicationLabels:(NSArray<NSString *> *)goToApplicationLabels;
 #endif
 
 @end
@@ -138,6 +195,8 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
 
 - (BOOL)startBroadcastWithTimeout:(NSTimeInterval)timeout
               confirmButtonLabels:(NSArray<NSString *> *)confirmButtonLabels
+              dismissButtonLabels:(NSArray<NSString *> *)dismissButtonLabels
+      goToApplicationButtonLabels:(NSArray<NSString *> *)goToApplicationButtonLabels
              restoreForegroundApp:(BOOL)restoreForegroundApp
                             error:(NSError **)error
 {
@@ -180,6 +239,8 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
   @try {
     return [self performBroadcastStartWithTimeout:timeout
                               confirmButtonLabels:confirmButtonLabels
+                              dismissButtonLabels:dismissButtonLabels
+                      goToApplicationButtonLabels:goToApplicationButtonLabels
                              restoreForegroundApp:restoreForegroundApp
                                             error:error];
   } @finally {
@@ -191,16 +252,29 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
 #if !TARGET_OS_SIMULATOR && !TARGET_OS_TV
 - (BOOL)performBroadcastStartWithTimeout:(NSTimeInterval)timeout
                      confirmButtonLabels:(NSArray<NSString *> *)confirmButtonLabels
+                     dismissButtonLabels:(NSArray<NSString *> *)dismissButtonLabels
+             goToApplicationButtonLabels:(NSArray<NSString *> *)goToApplicationButtonLabels
                     restoreForegroundApp:(BOOL)restoreForegroundApp
                                    error:(NSError **)error
 {
+  NSArray<NSString *> *dismissLabels = dismissButtonLabels.count > 0 ? dismissButtonLabels : @[@"OK"];
+  NSArray<NSString *> *goToAppLabels = goToApplicationButtonLabels.count > 0 ? goToApplicationButtonLabels : @[@"Go to Application"];
+
   // The screen may already be captured by a live broadcast even though the extension is not
   // connected (it crashed, or it is between TCP reconnect attempts). Driving the picker on top
   // of a live broadcast makes iOS kill both, so wait for the extension instead.
   if (UIScreen.mainScreen.isCaptured) {
     [FBLogger log:@"broadcast/start: the screen is already being captured; waiting for the extension to connect instead of starting another broadcast"];
     [[[[FBRunLoopSpinner new] timeout:5.0] interval:0.2] spinUntilTrue:^BOOL{
-      return self.isExtensionConnected || !UIScreen.mainScreen.isCaptured;
+      if (self.isExtensionConnected || !UIScreen.mainScreen.isCaptured) {
+        return YES;
+      }
+      // A stale "Screen Broadcasting" alert left over from a previous broadcast's end can be
+      // the very thing pinning isCaptured; clear it so the flag can drop.
+      if ([self dismissBroadcastStoppedAlertWithLabels:dismissLabels goToApplicationLabels:goToAppLabels]) {
+        [FBLogger log:@"broadcast/start: dispatched a dismissal tap for the stale Screen Broadcasting alert while waiting out the active capture"];
+      }
+      return NO;
     }];
     if (self.isExtensionConnected) {
       return YES;
@@ -278,6 +352,10 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
   __block CGRect confirmFrame = CGRectZero;
   __block uint64_t lastTriggerMs = FBBroadcastNowMs();
   [[[[FBRunLoopSpinner new] timeout:CONFIRM_BUTTON_TIMEOUT] interval:0.25] spinUntilTrue:^BOOL{
+    if ([self dismissBroadcastStoppedAlertWithLabels:dismissLabels goToApplicationLabels:goToAppLabels]) {
+      [FBLogger logFmt:@"broadcast/start: dispatched a dismissal tap for the stale Screen Broadcasting alert after %llums", FBBroadcastNowMs() - startedMs];
+      return NO;
+    }
     for (XCUIApplication *app in candidateApps) {
       for (NSString *label in labels) {
         XCUIElement *candidate = app.buttons[label];
@@ -311,18 +389,10 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
     }
     return NO;
   }
-  // Tap via WDA's own event synthesis instead of XCUIElement.tap: a missed XCUIElement tap
-  // (e.g. the sheet dismissed in between) records an XCTest failure that tears down the whole
-  // test session, whereas a missed synthesized tap is harmless and surfaces as a connect timeout.
-  CGFloat scale = (CGFloat)[FBScreen scale];
-  CGPoint center = CGPointMake(CGRectGetMidX(confirmFrame) * scale, CGRectGetMidY(confirmFrame) * scale);
-  NSArray *tapActions = @[
-    @{@"type": @"pointerDown", @"x": @(center.x), @"y": @(center.y)},
-    @{@"type": @"pause", @"duration": @60},
-    @{@"type": @"pointerUp", @"x": @(center.x), @"y": @(center.y)},
-  ];
+  // A missed tap here is harmless (surfaces as a connect timeout below); see
+  // FBBroadcastTapFrameCenter for why this goes through WDA's own event synthesis.
   NSError *tapError;
-  if (![runner fb_performMobilerunActions:tapActions scale:scale error:&tapError]) {
+  if (!FBBroadcastTapFrameCenter(runner, confirmFrame, YES, &tapError)) {
     [FBBroadcastPickerHost dismiss];
     if (error) {
       *error = [NSError errorWithDomain:FBBroadcastManagerErrorDomain
@@ -353,9 +423,88 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
   }
   return YES;
 }
+
+// Finds, but does not tap, the dismiss button of the system's stale "Screen Broadcasting" alert
+// (posted by SpringBoard whenever a broadcast ends) when one is on screen. The alert is matched
+// structurally, not by its (localized) title: exactly two buttons, of which exactly one matches
+// dismissLabels and the OTHER matches goToAppLabels - the second button anchors the alert's
+// identity, since "exactly one of two buttons matches the dismiss labels" alone still matches
+// unrelated two-button prompts (e.g. "Settings" / "OK"). Both label lists are localizable via
+// the request arguments. Anything else - including two-button alerts whose second button is
+// unrecognized - is left alone; misfiring on an unrelated system dialog would silently
+// acknowledge it, which is worse than letting the dance time out.
+- (nullable XCUIElement *)matchingDismissButtonForAlertWithDismissLabels:(NSArray<NSString *> *)dismissLabels
+                                                    goToApplicationLabels:(NSArray<NSString *> *)goToAppLabels
+{
+  XCUIApplication *systemApp = XCUIApplication.fb_systemApplication;
+  XCUIElement *alert = systemApp.alerts.firstMatch;
+  if (!alert.exists) {
+    return nil;
+  }
+  NSArray<XCUIElement *> *buttons = [alert.buttons allElementsBoundByIndex];
+  if (buttons.count != 2) {
+    return nil;
+  }
+  XCUIElement *dismissButton = nil;
+  XCUIElement *otherButton = nil;
+  for (XCUIElement *button in buttons) {
+    if ([dismissLabels containsObject:button.label]) {
+      if (nil != dismissButton) {
+        // Both buttons match the dismiss labels - ambiguous, not the alert we expect.
+        return nil;
+      }
+      dismissButton = button;
+    } else {
+      otherButton = button;
+    }
+  }
+  if (nil == dismissButton || nil == otherButton) {
+    return nil;
+  }
+  if (![goToAppLabels containsObject:otherButton.label]) {
+    // The other button is not the expected "Go to Application" anchor - some other two-button
+    // system prompt, not the Screen Broadcasting alert.
+    return nil;
+  }
+  return dismissButton;
+}
+
+// Dismisses the alert matched by matchingDismissButtonForAlertWithDismissLabels:goToApplicationLabels:
+// above: applies the re-attempt cooldown, verifies the button's frame, and dispatches the tap.
+- (BOOL)dismissBroadcastStoppedAlertWithLabels:(NSArray<NSString *> *)labels
+                         goToApplicationLabels:(NSArray<NSString *> *)goToApplicationLabels
+{
+  XCUIElement *dismissButton = [self matchingDismissButtonForAlertWithDismissLabels:labels
+                                                                goToApplicationLabels:goToApplicationLabels];
+  if (nil == dismissButton) {
+    return NO;
+  }
+  // The dismissal tap is fire-and-forget (see FBBroadcastTapFrameCenter), so without a cooldown
+  // the next 0.25s spin iteration could re-tap the same coordinates while the alert's dismissal
+  // animation is still running, landing the extra tap on the UI underneath.
+  if (FBBroadcastNowMs() - self.lastAlertDismissalAttemptMs < 1000) {
+    return NO;
+  }
+  CGRect frame = dismissButton.frame;
+  if (CGRectIsEmpty(frame)) {
+    return NO;
+  }
+  // The frame is in SpringBoard's coordinate space, and the synthesized event record is stamped
+  // with the RECEIVER's interface orientation - so the tap must be synthesized via the system
+  // app, not the (possibly backgrounded, orientation-stale) runner.
+  self.lastAlertDismissalAttemptMs = FBBroadcastNowMs();
+  return FBBroadcastTapFrameCenter(XCUIApplication.fb_systemApplication, frame, NO, nil);
+}
 #endif
 
 - (BOOL)stopBroadcastWithError:(NSError **)error
+{
+  return [self stopBroadcastWithDismissButtonLabels:nil goToApplicationButtonLabels:nil error:error];
+}
+
+- (BOOL)stopBroadcastWithDismissButtonLabels:(NSArray<NSString *> *)dismissButtonLabels
+                 goToApplicationButtonLabels:(NSArray<NSString *> *)goToApplicationButtonLabels
+                                        error:(NSError **)error
 {
   if (!self.isExtensionConnected) {
     return YES;
@@ -372,6 +521,45 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
     }
     return NO;
   }
+#if !TARGET_OS_SIMULATOR && !TARGET_OS_TV
+  // The delayed "Screen Broadcasting" alert is an iOS 26 behavior; on older iOS the sweep below
+  // would only add stop latency waiting for an alert that never appears, so gate it here - the
+  // start dance's own dismissal (see performBroadcastStartWithTimeout:...) remains the safety
+  // net on every iOS version.
+  if (@available(iOS 26.0, *)) {
+    // Best-effort: a broadcast stop almost always leaves the stale "Screen Broadcasting" alert
+    // behind, so proactively clear it here instead of waiting for the next start dance to hit it.
+    // This never affects the return value below.
+    NSArray<NSString *> *dismissLabels = dismissButtonLabels.count > 0 ? dismissButtonLabels : @[@"OK"];
+    NSArray<NSString *> *goToAppLabels = goToApplicationButtonLabels.count > 0 ? goToApplicationButtonLabels : @[@"Go to Application"];
+    uint64_t sweepStartedMs = FBBroadcastNowMs();
+    __block BOOL alertSeen = NO;
+    // Survives both failure modes seen in review: exiting once a dismissal tap is merely
+    // dispatched (FBBroadcastTapFrameCenter's waitForAck:NO tap is fire-and-forget and can be
+    // shed by the system, so the sweep must keep spinning on the matcher's OBSERVED state, not
+    // on the dispatch call succeeding), and exiting before the alert - which SpringBoard
+    // publishes with a delay AFTER the extension socket closes - has appeared at all. So: once
+    // the alert has been seen, declare success only when it is next observed gone (retrying the
+    // dismissal tap in between, paced by the 1s cooldown inside
+    // dismissBroadcastStoppedAlertWithLabels:goToApplicationLabels:); until it has been seen,
+    // keep waiting out the appearance grace period rather than exiting on the first (empty)
+    // read.
+    [[[[FBRunLoopSpinner new] timeout:ALERT_SWEEP_TIMEOUT_SEC] interval:0.25] spinUntilTrue:^BOOL{
+      XCUIElement *dismissButton = [self matchingDismissButtonForAlertWithDismissLabels:dismissLabels goToApplicationLabels:goToAppLabels];
+      if (nil != dismissButton) {
+        alertSeen = YES;
+        if ([self dismissBroadcastStoppedAlertWithLabels:dismissLabels goToApplicationLabels:goToAppLabels]) {
+          [FBLogger log:@"broadcast/stop: dispatched a dismissal tap for the Screen Broadcasting alert"];
+        }
+        return NO;
+      }
+      if (alertSeen) {
+        return YES;
+      }
+      return (FBBroadcastNowMs() - sweepStartedMs) >= (uint64_t)(ALERT_APPEARANCE_GRACE_SEC * 1000);
+    }];
+  }
+#endif
   return YES;
 }
 

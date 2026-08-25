@@ -28,6 +28,7 @@
 #import "FBUnknownCommands.h"
 #import "FBConfiguration.h"
 #import "FBLogger.h"
+#import "FBXCodeCompatibility.h"
 
 #import "XCUIDevice+FBHelpers.h"
 
@@ -65,6 +66,9 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 @property (nonatomic, nullable, strong) FBMjpegServer *mjpegServer;
 #endif
 @property (atomic, assign) BOOL keepAlive;
+// Serializes automation requests onto a single funnel so at most one is ever in flight on
+// the main queue. See registerRouteHandlers: for why this is necessary.
+@property (nonatomic, strong) dispatch_queue_t automationQueue;
 @end
 
 @implementation FBWebServer
@@ -105,6 +109,17 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 #endif
 
   self.keepAlive = YES;
+  // /status is served off the main queue (it uses onControlQueue), but FBSDKVersion() and
+  // FBTestmanagerdVersion() cache their result behind a dispatch_once. Burn both once-tokens
+  // here, on the main thread, warmed only after the server has bound: FBTestmanagerdVersion()'s
+  // legacy branch waits (with a bounded timeout) on the daemon, and a degraded daemon must not
+  // be able to prevent the server from binding. An early request that races the warm-up just
+  // blocks on the dispatch_once for at most the bounded handshake. Warmed only after
+  // initialization is complete and keepAlive is set, so a shutdown that arrives while the
+  // bounded legacy handshake spins the run loop simply clears keepAlive via stopServing and the
+  // serving loop below never starts.
+  FBSDKVersion();
+  FBTestmanagerdVersion();
   NSRunLoop *runLoop = [NSRunLoop mainRunLoop];
   while (self.keepAlive) {
     @try {
@@ -132,13 +147,17 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 #else
   self.server = [[RoutingHTTPServer alloc] init];
 #endif
+#if TARGET_OS_WATCH
   [self.server setRouteQueue:dispatch_get_main_queue()];
+#endif
   [self.server setDefaultHeader:@"Server" value:@"WebDriverAgent/1.0"];
   [self.server setDefaultHeader:@"Access-Control-Allow-Origin" value:@"*"];
   [self.server setDefaultHeader:@"Access-Control-Allow-Headers" value:@"Content-Type, X-Requested-With"];
 #if !TARGET_OS_WATCH
   [self.server setConnectionClass:[FBHTTPConnection self]];
 #endif
+
+  self.automationQueue = dispatch_queue_create("com.facebook.WebDriverAgent.automation-funnel", DISPATCH_QUEUE_SERIAL);
 
   [self registerRouteHandlers:[self.class collectCommandHandlerClasses]];
   [self registerServerKeyRouteHandlers];
@@ -293,14 +312,38 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 
         [FBLogger verboseLog:routeParams.description];
 
-        @try {
-          [route mountRequest:routeParams intoResponse:response];
+#if TARGET_OS_WATCH
+        [strongSelf mountRoute:route request:routeParams intoResponse:response];
+#else
+        if (route.usesControlQueue) {
+          // Served on this connection's own queue so it stays responsive while the automation
+          // queue is busy or blocked. Only routes that never touch XCUI state opt in.
+          [strongSelf mountRoute:route request:routeParams intoResponse:response];
+        } else {
+          // Serialize automation requests: while one is on the main queue (possibly spinning the
+          // run loop), the next waits here instead of being enqueued to main, where a nested run
+          // loop drain would otherwise execute it reentrantly inside the first handler.
+          dispatch_sync(strongSelf.automationQueue, ^{
+            dispatch_sync(dispatch_get_main_queue(), ^{
+              @autoreleasepool {
+                [strongSelf mountRoute:route request:routeParams intoResponse:response];
+              }
+            });
+          });
         }
-        @catch (NSException *exception) {
-          [strongSelf handleException:exception forResponse:response];
-        }
+#endif
       }];
     }
+  }
+}
+
+- (void)mountRoute:(FBRoute *)route request:(FBRouteRequest *)routeParams intoResponse:(RouteResponse *)response
+{
+  @try {
+    [route mountRequest:routeParams intoResponse:response];
+  }
+  @catch (NSException *exception) {
+    [self handleException:exception forResponse:response];
   }
 }
 
@@ -332,7 +375,11 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
       return;
     }
     [response respondWithString:@"Shutting down"];
-    [strongSelf.delegate webServerDidRequestShutdown:strongSelf];
+    // The delegate tears down automation state; run it on the main queue without blocking
+    // this connection's queue.
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [strongSelf.delegate webServerDidRequestShutdown:strongSelf];
+    });
   }];
 
   [self registerRouteHandlers:@[FBUnknownCommands.class]];
