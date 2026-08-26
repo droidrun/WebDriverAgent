@@ -6,28 +6,18 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-// TARGET_OS_WATCH must be defined before the #if below runs, or (on some older Xcode/SDK
-// toolchains) it silently evaluates as undefined/false here despite being true for the rest of
-// the translation unit - which desyncs this file's declarations from FBTCPSocket.m's own
-// #if TARGET_OS_WATCH branch.
-#import <TargetConditionals.h>
-
-#if TARGET_OS_WATCH
 @import Foundation;
 // A textual import, not `@import Network;` - older Xcode/watchOS SDK combinations (verified:
 // Xcode 15.4/watchOS 10.5) fail to expose nw_listener_t/nw_connection_t and friends through the
 // Network module map on watchOS, even though the underlying API has existed since watchOS 5.0.
+// Kept unconditional (rather than gated to watchOS) since it also builds cleanly on iOS/tvOS.
 #import <Network/Network.h>
-#else
-#import "GCDAsyncSocket.h"
-#endif
 
 NS_ASSUME_NONNULL_BEGIN
 
-#if TARGET_OS_WATCH
-
-// watchOS forbids BSD sockets, so this is backed by Network.framework instead of GCDAsyncSocket -
-// hence a differently-shaped, push-style delegate protocol.
+// Backed by Network.framework rather than BSD sockets on every platform, since watchOS forbids
+// BSD sockets outright and there is no reason to keep a second, socket-based implementation
+// around just for iOS/tvOS.
 @protocol FBTCPSocketDelegate <NSObject>
 
 /**
@@ -54,35 +44,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
-#else
-
-@protocol FBTCPSocketDelegate
-
-/**
- The callback which is fired on new TCP client connection
-
- @param newClient The newly connected socket
- */
-- (void)didClientConnect:(GCDAsyncSocket *)newClient;
-
-/**
- The callback which is fired when the TCP server receives a data from a connected client
-
- @param client The client, which sent the data
-*/
-- (void)didClientSendData:(GCDAsyncSocket *)client;
-
-/**
- The callback which is fired when TCP client disconnects
-
- @param client The actual diconnected client
- */
-- (void)didClientDisconnect:(GCDAsyncSocket *)client;
-
-@end
-
-#endif
-
 
 @interface FBTCPSocket : NSObject
 
@@ -91,6 +52,27 @@ NS_ASSUME_NONNULL_BEGIN
 #else
 @property (nullable, nonatomic, assign) id<FBTCPSocketDelegate> delegate;
 #endif
+
+/**
+ The port this socket is listening on. Equal to the port passed to -initWithPort: unless that was
+ 0 ("let the system assign a port"), in which case this reflects the actually assigned port once
+ -startWithError: has returned successfully.
+ */
+@property (nonatomic, readonly) uint16_t port;
+
+/**
+ The local IP address to bind the listener to, or nil to listen on all interfaces. Must be set
+ before -startWithError: is called.
+ */
+@property (nonatomic, copy, nullable) NSString *interface;
+
+/**
+ Whether to disable Nagle's algorithm (TCP_NODELAY) on accepted connections. Must be set before
+ -startWithError: is called, since Network.framework takes it from the listener's parameters
+ rather than per accepted connection. Defaults to NO; enable it for latency-sensitive streams
+ that push many small payloads, where Nagle would otherwise coalesce them.
+ */
+@property (nonatomic) BOOL noDelay;
 
 /**
  Creates TCP socket isntance which is going to be started on the specified port
@@ -113,7 +95,6 @@ NS_ASSUME_NONNULL_BEGIN
  */
 - (void)stop;
 
-#if TARGET_OS_WATCH
 /**
  Writes data to the given connected client
 
@@ -129,10 +110,11 @@ NS_ASSUME_NONNULL_BEGIN
 
  @param data The data to send
  @param client The destination client
- @param completion Called once the send attempt finishes
+ @param completion Called once the send attempt finishes. `didSucceed` is NO if the send failed
+        (e.g. the peer went away mid-write), in which case nothing was delivered and the caller
+        must not treat the connection as usable.
  */
-- (void)writeData:(NSData *)data toClient:(nw_connection_t)client completion:(nullable void (^)(void))completion;
-#endif
+- (void)writeData:(NSData *)data toClient:(nw_connection_t)client completion:(nullable void (^)(BOOL didSucceed))completion;
 
 @end
 

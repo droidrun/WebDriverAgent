@@ -128,17 +128,14 @@ static NSString *const axSettingsClassName = @"AXSettings";
 {
   // 'WebDriverAgent --port 8080' can be passed via the arguments to the process
   NSRange rangeFromArguments = [self.class bindingPortRangeFromArguments];
-  if (rangeFromArguments.location != NSNotFound) {
-    return rangeFromArguments;
+  if (rangeFromArguments.location == NSNotFound) {
+    // Existence of USE_PORT in the environment implies the port range is managed by the launching process.
+    NSString *usePort = NSProcessInfo.processInfo.environment[@"USE_PORT"];
+    rangeFromArguments = usePort.length > 0
+      ? NSMakeRange((NSUInteger)usePort.integerValue, 1)
+      : NSMakeRange(DefaultStartingPort, DefaultPortRange);
   }
-
-  // Existence of USE_PORT in the environment implies the port range is managed by the launching process.
-  if (NSProcessInfo.processInfo.environment[@"USE_PORT"] &&
-      [NSProcessInfo.processInfo.environment[@"USE_PORT"] length] > 0) {
-    return NSMakeRange([NSProcessInfo.processInfo.environment[@"USE_PORT"] integerValue] , 1);
-  }
-
-  return NSMakeRange(DefaultStartingPort, DefaultPortRange);
+  return rangeFromArguments;
 }
 
 - (NSString *)bindingIPAddress
@@ -412,6 +409,7 @@ static NSString *const axSettingsClassName = @"AXSettings";
   // these per session via the settings API.
   self.waitForIdleTimeout = 0.;
   self.animationCoolOffTimeout = 0.;
+  self.accessibilityDeadline = 0.;
   // 50 should be enough for the majority of the cases. The performance is acceptable for values up to 100.
   FBSetCustomParameterForElementSnapshot(FBSnapshotMaxDepthKey, @50);
   FBSetCustomParameterForElementSnapshot(FBSnapshotMaxChildrenKey, @INT_MAX);

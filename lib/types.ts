@@ -13,6 +13,7 @@ export interface WDASettings {
   keyboardAutocorrection?: boolean;
   keyboardPrediction?: boolean;
   customSnapshotTimeout?: number;
+  accessibilityDeadline?: number;
   snapshotMaxDepth?: number;
   snapshotMaxChildren?: number;
   useFirstMatch?: boolean;
@@ -50,6 +51,7 @@ export interface WDACapabilities {
   forceSimulatorSoftwareKeyboardPresence?: boolean;
   defaultAlertAction?: 'accept' | 'dismiss';
   appLaunchStateTimeoutSec?: number;
+  accessibilityDeadline?: number;
 }
 
 export interface WebDriverAgentArgs {
@@ -179,9 +181,11 @@ export type WdaScheme =
   | 'WebDriverAgentRunner'
   | 'WebDriverAgentLib'
   | 'WebDriverAgentRunner_tvOS'
-  | 'WebDriverAgentLib_tvOS';
+  | 'WebDriverAgentLib_tvOS'
+  | 'WebDriverAgentRunner_watchOS'
+  | 'WebDriverAgentLib_watchOS';
 
-export type WdaSdk = 'iphonesimulator' | 'iphoneos' | 'appletvsimulator' | 'appletvos';
+export type WdaSdk = 'iphonesimulator' | 'iphoneos' | 'appletvsimulator' | 'appletvos' | 'watchsimulator';
 
 export type WdaBuildConfiguration = 'Debug' | 'Release';
 

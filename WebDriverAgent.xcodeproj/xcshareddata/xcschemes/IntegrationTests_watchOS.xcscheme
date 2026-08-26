@@ -14,7 +14,7 @@
             buildForAnalyzing = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "4632809915F58C9095914E85"
+               BlueprintIdentifier = "5D9539D7055B5E6EED56D100"
                BuildableName = "IntegrationTests_watchOS.xctest"
                BlueprintName = "IntegrationTests_watchOS"
                ReferencedContainer = "container:WebDriverAgent.xcodeproj">
@@ -32,7 +32,7 @@
             skipped = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "4632809915F58C9095914E85"
+               BlueprintIdentifier = "5D9539D7055B5E6EED56D100"
                BuildableName = "IntegrationTests_watchOS.xctest"
                BlueprintName = "IntegrationTests_watchOS"
                ReferencedContainer = "container:WebDriverAgent.xcodeproj">
@@ -53,7 +53,7 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "4632809915F58C9095914E85"
+            BlueprintIdentifier = "5D9539D7055B5E6EED56D100"
             BuildableName = "IntegrationTests_watchOS.xctest"
             BlueprintName = "IntegrationTests_watchOS"
             ReferencedContainer = "container:WebDriverAgent.xcodeproj">
@@ -69,7 +69,7 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "4632809915F58C9095914E85"
+            BlueprintIdentifier = "5D9539D7055B5E6EED56D100"
             BuildableName = "IntegrationTests_watchOS.xctest"
             BlueprintName = "IntegrationTests_watchOS"
             ReferencedContainer = "container:WebDriverAgent.xcodeproj">

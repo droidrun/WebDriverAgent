@@ -8,20 +8,16 @@
 
 #import "FBAudioStreamSession.h"
 
-#import <errno.h>
 #import <mach/mach_time.h>
-#import <netinet/in.h>
-#import <netinet/tcp.h>
-#import <sys/socket.h>
 
-#import "GCDAsyncSocket.h"
 #import "FBBroadcastProtocol.h"
 #import "FBLogger.h"
 #import "FBScrcpyPacket.h"
 #import "FBTCPSocket.h"
 
-static const NSTimeInterval PACKET_TIMEOUT = 1.0;
 static const NSUInteger FBAudioStreamSampleRate = 48000;
+// Smallest per-client send backlog tolerated regardless of the configured bitrate.
+static const NSUInteger FBAudioMinPendingBytes = 64 * 1024;
 
 @implementation FBAudioCaptureConfiguration
 @end
@@ -29,7 +25,15 @@ static const NSUInteger FBAudioStreamSampleRate = 48000;
 
 @interface FBAudioStreamSession () <FBTCPSocketDelegate>
 
-@property (nonatomic) NSMutableArray<GCDAsyncSocket *> *listeningClients;
+@property (nonatomic) NSMutableArray<nw_connection_t> *listeningClients;
+/**
+ Bytes submitted to the socket but not sent yet, per client. nw_connection_send has no
+ backpressure signal, so a client that stops draining is disconnected once its backlog exceeds
+ roughly a second of stream. Opus packets are not independently decodable, so dropping them
+ would corrupt the stream rather than degrade it.
+ Guarded by @synchronized (self.listeningClients).
+ */
+@property (nonatomic) NSMapTable<id, NSNumber *> *pendingBytesByClient;
 @property (nonatomic, nullable) FBTCPSocket *broadcaster;
 @property (atomic, getter=isActive) BOOL active;
 /** The OpusHead describing the stream; the extension's real one replaces the synthesized fallback. */
@@ -53,6 +57,8 @@ static const NSUInteger FBAudioStreamSampleRate = 48000;
     _identifier = identifier;
     _configuration = configuration;
     _listeningClients = [NSMutableArray array];
+    _pendingBytesByClient = [NSMapTable mapTableWithKeyOptions:(NSPointerFunctionsOptions)(NSMapTableObjectPointerPersonality | NSMapTableStrongMemory)
+                                                  valueOptions:(NSPointerFunctionsOptions)NSMapTableStrongMemory];
     _active = NO;
     _streaming = NO;
     // A synthesized header (pre-skip 0) so scrcpy-framing clients always receive a config packet
@@ -68,6 +74,8 @@ static const NSUInteger FBAudioStreamSampleRate = 48000;
 {
   self.broadcaster = [[FBTCPSocket alloc] initWithPort:self.configuration.port];
   self.broadcaster.delegate = self;
+  // Send small Opus packets immediately instead of letting Nagle coalesce them.
+  self.broadcaster.noDelay = YES;
   if (![self.broadcaster startWithError:error]) {
     self.broadcaster = nil;
     return NO;
@@ -88,6 +96,7 @@ static const NSUInteger FBAudioStreamSampleRate = 48000;
     }
     @synchronized (self.listeningClients) {
       [self.listeningClients removeAllObjects];
+      [self.pendingBytesByClient removeAllObjects];
     }
   }
 }
@@ -146,55 +155,87 @@ static const NSUInteger FBAudioStreamSampleRate = 48000;
   self.lastError = message;
 }
 
+// Roughly one second of stream, mirroring the write timeout that used to disconnect slow clients.
+- (NSUInteger)maxPendingBytesPerClient
+{
+  return MAX(self.configuration.bitrate / 8, FBAudioMinPendingBytes);
+}
+
+// Caller must hold @synchronized (self.listeningClients).
+- (void)sendData:(NSData *)data toClient:(nw_connection_t)client
+{
+  NSUInteger pending = [self.pendingBytesByClient objectForKey:client].unsignedIntegerValue;
+  if (pending > self.maxPendingBytesPerClient) {
+    [FBLogger logFmt:@"Audio capture session %@: dropping a client that is not draining its socket (%@ bytes pending)",
+     @(self.identifier), @(pending)];
+    [self.listeningClients removeObject:client];
+    [self.pendingBytesByClient removeObjectForKey:client];
+    // -didClientDisconnect: follows from the cancellation and cleans up anything left.
+    nw_connection_cancel(client);
+    return;
+  }
+  [self.pendingBytesByClient setObject:@(pending + data.length) forKey:client];
+  NSUInteger sentLength = data.length;
+  __weak typeof(self) weakSelf = self;
+  [self.broadcaster writeData:data toClient:client completion:^(BOOL didSucceed) {
+    __strong typeof(weakSelf) strongSelf = weakSelf;
+    if (nil == strongSelf) {
+      return;
+    }
+    @synchronized (strongSelf.listeningClients) {
+      NSUInteger stillPending = [strongSelf.pendingBytesByClient objectForKey:client].unsignedIntegerValue;
+      if (stillPending > sentLength) {
+        [strongSelf.pendingBytesByClient setObject:@(stillPending - sentLength) forKey:client];
+      } else {
+        [strongSelf.pendingBytesByClient removeObjectForKey:client];
+      }
+    }
+  }];
+}
+
 - (void)broadcastData:(NSData *)data
 {
   if (data.length == 0) {
     return;
   }
   @synchronized (self.listeningClients) {
-    for (GCDAsyncSocket *client in self.listeningClients) {
-      // Slow clients should fail/close instead of buffering indefinitely.
-      [client writeData:data withTimeout:PACKET_TIMEOUT tag:0];
+    // Copied because -sendData:toClient: can remove a stalled client from the array.
+    for (nw_connection_t client in self.listeningClients.copy) {
+      [self sendData:data toClient:client];
     }
   }
 }
 
 #pragma mark - <FBTCPSocketDelegate>
 
-- (void)didClientConnect:(GCDAsyncSocket *)newClient
+- (void)didClientConnect:(nw_connection_t)newClient
 {
-  [FBLogger logFmt:@"Audio capture session %@: client connected at %@:%d",
-   @(self.identifier), newClient.connectedHost, newClient.connectedPort];
-  // Disable Nagle's algorithm so small Opus packets are sent immediately, keeping latency low.
-  [self.class enableNoDelayForClient:newClient];
+  [FBLogger logFmt:@"Audio capture session %@: client connected", @(self.identifier)];
   @synchronized (self.listeningClients) {
     if (![self.listeningClients containsObject:newClient]) {
       [self.listeningClients addObject:newClient];
     }
+    // Hand the codec configuration to the new client so it can start decoding immediately.
+    // lastSentOpusHead is deliberately not updated: it tracks what was broadcast to the whole
+    // client set, and marking it sent here would skip the changed-config broadcast that earlier
+    // clients still need (the new client just receives the same config twice, which is harmless).
+    if (self.configuration.framing == FBAudioFramingScrcpy) {
+      [self sendData:FBScrcpyPacketCreate(self.currentOpusHead, FBScrcpyFlagConfig, 0) toClient:newClient];
+    }
   }
-  // Hand the codec configuration to the new client so it can start decoding immediately.
-  // lastSentOpusHead is deliberately not updated: it tracks what was broadcast to the whole
-  // client set, and marking it sent here would skip the changed-config broadcast that earlier
-  // clients still need (the new client just receives the same config twice, which is harmless).
-  if (self.configuration.framing == FBAudioFramingScrcpy) {
-    [newClient writeData:FBScrcpyPacketCreate(self.currentOpusHead, FBScrcpyFlagConfig, 0)
-             withTimeout:PACKET_TIMEOUT
-                     tag:0];
-  }
-  // Keep reading (and discarding) any client bytes so disconnects are detected promptly.
-  [newClient readDataWithTimeout:-1 tag:0];
 }
 
-- (void)didClientSendData:(GCDAsyncSocket *)client
+- (void)client:(nw_connection_t)client didReceiveData:(NSData *)data
 {
-  // The stream is push-only; client payloads are ignored. Keep the read loop alive.
-  [client readDataWithTimeout:-1 tag:0];
+  // The stream is push-only; client payloads are ignored. FBTCPSocket keeps the receive loop
+  // running on its own, which is what surfaces disconnects.
 }
 
-- (void)didClientDisconnect:(GCDAsyncSocket *)client
+- (void)didClientDisconnect:(nw_connection_t)client
 {
   @synchronized (self.listeningClients) {
     [self.listeningClients removeObject:client];
+    [self.pendingBytesByClient removeObjectForKey:client];
   }
   [FBLogger logFmt:@"Audio capture session %@: client disconnected", @(self.identifier)];
 }
@@ -224,20 +265,6 @@ static const NSUInteger FBAudioStreamSampleRate = 48000;
     @"lastPacketAtMs": lastPacketAtMs > 0 ? @(lastPacketAtMs) : NSNull.null,
     @"lastError": lastError ?: NSNull.null,
   };
-}
-
-+ (void)enableNoDelayForClient:(GCDAsyncSocket *)client
-{
-  [client performBlock:^{
-    int fd = client.socketFD;
-    if (fd < 0) {
-      return;
-    }
-    int flag = 1;
-    if (0 != setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag))) {
-      [FBLogger logFmt:@"Cannot enable TCP_NODELAY on the audio capture client socket (errno %d)", errno];
-    }
-  }];
 }
 
 @end

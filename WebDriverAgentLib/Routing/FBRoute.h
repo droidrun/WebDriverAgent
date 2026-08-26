@@ -27,9 +27,8 @@ typedef __nonnull id<FBResponsePayload> (^FBRouteSyncHandler)(FBRouteRequest *re
 /*! Route's path */
 @property (nonatomic, copy, readonly) NSString *path;
 
-/*! YES when the route is served directly on the HTTP connection's queue instead of the
-    automation (main) queue */
-@property (nonatomic, assign, readonly) BOOL usesControlQueue;
+/*! Whether this route bypasses the shared route queue - see -standalone */
+@property (nonatomic, assign, readonly) BOOL isStandalone;
 
 /**
  Convenience constructor for GET route with given pathPattern
@@ -72,12 +71,10 @@ typedef __nonnull id<FBResponsePayload> (^FBRouteSyncHandler)(FBRouteRequest *re
 - (instancetype)withoutSession;
 
 /**
- Chain-able modifier that marks the route to be served on the HTTP connection's own queue,
- bypassing the automation (main) queue. Only routes whose handlers never call XCUI or
- testmanagerd APIs and only touch thread-safe state may opt in — such routes stay responsive
- even while an automation request is blocked.
+ Chain-able constructor for a route that bypasses the shared route queue - see FBHTTPServer.h's
+ -handleMethod:withPath:standalone:block: for what that changes about how/when the handler runs.
  */
-- (instancetype)onControlQueue;
+- (instancetype)standalone;
 
 /**
  Dispatches response for request

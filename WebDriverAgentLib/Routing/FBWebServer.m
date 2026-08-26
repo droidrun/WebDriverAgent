@@ -8,20 +8,19 @@
 
 #import "FBWebServer.h"
 
-#if TARGET_OS_WATCH
-#import "FBWatchHTTPServer.h"
-#else
-#import "RoutingConnection.h"
-#import "RoutingHTTPServer.h"
-#import "FBBroadcastManager.h"
+#import "FBHTTPServer.h"
 #import "FBMjpegServer.h"
 #import "FBTCPSocket.h"
+#if !TARGET_OS_WATCH
+#import "FBBroadcastManager.h"
 #import "FBVideoStreamManager.h"
 #endif
 
 #import "FBCommandHandler.h"
+#import "FBCommandStatus.h"
 #import "FBErrorBuilder.h"
 #import "FBExceptionHandler.h"
+#import "FBResponsePayload.h"
 #import "FBRouteRequest.h"
 #import "FBRuntimeUtils.h"
 #import "FBSession.h"
@@ -36,36 +35,11 @@
 static NSString *const FBServerURLBeginMarker = @"ServerURLHere->";
 static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 
-#if !TARGET_OS_WATCH
-@interface FBHTTPConnection : RoutingConnection
-@end
-
-@implementation FBHTTPConnection
-
-- (void)handleResourceNotFound
-{
-  [FBLogger logFmt:@"Received request for %@ which we do not handle", self.requestURI];
-  [super handleResourceNotFound];
-}
-
-- (UInt64)maxRequestBodySize
-{
-  return FBConfiguration.sharedInstance.httpRequestBodySizeLimit;
-}
-
-@end
-#endif
-
-
 @interface FBWebServer ()
 @property (nonatomic, strong) FBExceptionHandler *exceptionHandler;
-#if TARGET_OS_WATCH
-@property (nonatomic, strong) FBWatchHTTPServer *server;
-#else
-@property (nonatomic, strong) RoutingHTTPServer *server;
+@property (nonatomic, strong) FBHTTPServer *server;
 @property (nonatomic, nullable) FBTCPSocket *screenshotsBroadcaster;
 @property (nonatomic, nullable, strong) FBMjpegServer *mjpegServer;
-#endif
 @property (atomic, assign) BOOL keepAlive;
 // Serializes automation requests onto a single funnel so at most one is ever in flight on
 // the main queue. See registerRouteHandlers: for why this is necessary.
@@ -76,9 +50,7 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 
 - (void)dealloc
 {
-#if !TARGET_OS_WATCH
   [self stopScreenshotsBroadcaster];
-#endif
 }
 
 + (NSArray<Class<FBCommandHandler>> *)collectCommandHandlerClasses
@@ -108,14 +80,14 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
   if (![self startHTTPServer]) {
     return;
   }
-#if !TARGET_OS_WATCH
   [self initScreenshotsBroadcaster];
+#if !TARGET_OS_WATCH
   // Listen permanently so broadcasts started from Control Center attach as well.
   [FBBroadcastManager.sharedInstance startListening];
 #endif
 
   self.keepAlive = YES;
-  // /status is served off the main queue (it uses onControlQueue), but FBSDKVersion() and
+  // /status is served off the main queue (it is a standalone route), but FBSDKVersion() and
   // FBTestmanagerdVersion() cache their result behind a dispatch_once. Burn both once-tokens
   // here, on the main thread, warmed only after the server has bound: FBTestmanagerdVersion()'s
   // legacy branch waits (with a bounded timeout) on the daemon, and a degraded daemon must not
@@ -148,34 +120,29 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 
 - (BOOL)startHTTPServer
 {
-#if TARGET_OS_WATCH
-  self.server = [[FBWatchHTTPServer alloc] init];
-#else
-  self.server = [[RoutingHTTPServer alloc] init];
-#endif
-#if TARGET_OS_WATCH
-  [self.server setRouteQueue:dispatch_get_main_queue()];
-#endif
+  self.server = [[FBHTTPServer alloc] init];
+  // Serializes automation requests so at most one is ever in flight on the main queue; handlers
+  // are invoked here and hop to main via dispatch_sync. See registerRouteHandlers:.
+  self.automationQueue = dispatch_queue_create("com.facebook.WebDriverAgent.automation-funnel", DISPATCH_QUEUE_SERIAL);
+  [self.server setRouteQueue:self.automationQueue];
   [self.server setDefaultHeader:@"Server" value:@"WebDriverAgent/1.0"];
   [self.server setDefaultHeader:@"Access-Control-Allow-Origin" value:@"*"];
   [self.server setDefaultHeader:@"Access-Control-Allow-Headers" value:@"Content-Type, X-Requested-With"];
-#if !TARGET_OS_WATCH
-  [self.server setConnectionClass:[FBHTTPConnection self]];
-#endif
 
-  self.automationQueue = dispatch_queue_create("com.facebook.WebDriverAgent.automation-funnel", DISPATCH_QUEUE_SERIAL);
+  [NSNotificationCenter.defaultCenter addObserver:self
+                                          selector:@selector(sessionWasKilled:)
+                                              name:FBSessionWasKilledNotification
+                                            object:nil];
 
   [self registerRouteHandlers:[self.class collectCommandHandlerClasses]];
   [self registerServerKeyRouteHandlers];
 
   NSRange serverPortRange = FBConfiguration.sharedInstance.bindingPortRange;
   NSString *bindingIP = FBConfiguration.sharedInstance.bindingIPAddress;
-#if !TARGET_OS_WATCH
   if (bindingIP != nil) {
     [self.server setInterface:bindingIP];
     [FBLogger logFmt:@"Using custom binding IP address: %@", bindingIP];
   }
-#endif
 
   NSError *error;
   BOOL serverStarted = NO;
@@ -207,13 +174,13 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
   return YES;
 }
 
-#if !TARGET_OS_WATCH
 - (void)initScreenshotsBroadcaster
 {
   [self readMjpegSettingsFromEnv];
   self.mjpegServer = [[FBMjpegServer alloc] init];
   self.screenshotsBroadcaster = [[FBTCPSocket alloc]
                                  initWithPort:(uint16_t)FBConfiguration.sharedInstance.mjpegServerPort];
+  self.mjpegServer.socket = self.screenshotsBroadcaster;
   self.screenshotsBroadcaster.delegate = self.mjpegServer;
   NSError *error;
   if (![self.screenshotsBroadcaster startWithError:&error]) {
@@ -253,16 +220,33 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
     FBConfiguration.sharedInstance.mjpegServerScreenshotQuality = [screenshotQuality integerValue];
   }
 }
-#endif
+
+- (void)sessionWasKilled:(NSNotification *)notification
+{
+  FBSession *session = notification.object;
+  if (![session isKindOfClass:FBSession.class]) {
+    return;
+  }
+  // Same "invalid session id" shape a still-queued request would eventually get anyway, once
+  // -routeQueue drains and FBRoute.decorateRequest: finds the session gone - just delivered now
+  // instead of after however long the request would otherwise have been stuck waiting.
+  NSString *message = [NSString stringWithFormat:@"Session %@ was deleted while this request was still pending", session.identifier];
+  id<FBResponsePayload> payload = FBResponseWithStatus([FBCommandStatus noSuchDriverErrorWithMessage:message
+                                                                                            traceback:nil]);
+  RouteResponse *response = [RouteResponse new];
+  [payload dispatchWithResponse:response];
+  [self.server abandonPendingRequestsForSessionID:session.identifier withResponse:response];
+}
 
 - (void)stopServing
 {
+  [NSNotificationCenter.defaultCenter removeObserver:self name:FBSessionWasKilledNotification object:nil];
   [FBSession.activeSession kill];
 #if !TARGET_OS_WATCH
   [FBVideoStreamManager.sharedInstance stopAllSessions];
   [FBBroadcastManager.sharedInstance stopListening];
-  [self stopScreenshotsBroadcaster];
 #endif
+  [self stopScreenshotsBroadcaster];
   if (self.server.isRunning) {
     [self.server stop:NO];
   }
@@ -271,11 +255,7 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
   self.keepAlive = NO;
 }
 
-#if TARGET_OS_WATCH
-- (BOOL)attemptToStartServer:(FBWatchHTTPServer *)server onPort:(NSInteger)port withError:(NSError **)error
-#else
-- (BOOL)attemptToStartServer:(RoutingHTTPServer *)server onPort:(NSInteger)port withError:(NSError **)error
-#endif
+- (BOOL)attemptToStartServer:(FBHTTPServer *)server onPort:(NSInteger)port withError:(NSError **)error
 {
   server.port = (UInt16)port;
   NSError *innerError = nil;
@@ -304,7 +284,7 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
   for (Class<FBCommandHandler> commandHandler in commandHandlerClasses) {
     NSArray *routes = [commandHandler routes];
     for (FBRoute *route in routes) {
-      [self.server handleMethod:route.verb withPath:route.path block:^(RouteRequest *request, RouteResponse *response) {
+      [self.server handleMethod:route.verb withPath:route.path standalone:route.isStandalone block:^(RouteRequest *request, RouteResponse *response) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (nil == strongSelf) {
           return;
@@ -318,26 +298,24 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 
         [FBLogger verboseLog:routeParams.description];
 
-#if TARGET_OS_WATCH
-        [strongSelf mountRoute:route request:routeParams intoResponse:response];
-#else
-        if (route.usesControlQueue) {
-          // Served on this connection's own queue so it stays responsive while the automation
-          // queue is busy or blocked. Only routes that never touch XCUI state opt in.
+        if (route.isStandalone) {
+          // Standalone handlers are invoked by FBHTTPServer on their own queues so they stay
+          // responsive while the main queue is busy or blocked. Only routes that never touch
+          // XCUI state opt in.
           [strongSelf mountRoute:route request:routeParams intoResponse:response];
         } else {
-          // Serialize automation requests: while one is on the main queue (possibly spinning the
-          // run loop), the next waits here instead of being enqueued to main, where a nested run
-          // loop drain would otherwise execute it reentrantly inside the first handler.
-          dispatch_sync(strongSelf.automationQueue, ^{
-            dispatch_sync(dispatch_get_main_queue(), ^{
-              @autoreleasepool {
-                [strongSelf mountRoute:route request:routeParams intoResponse:response];
-              }
-            });
+          // Invoked on the automation funnel (the server's routeQueue). Hopping to main from
+          // there - instead of using the main queue as the routeQueue directly - serializes
+          // automation requests: while one is on the main queue (possibly spinning the run
+          // loop), the next waits on the funnel instead of being enqueued to main, where a
+          // nested run loop drain would otherwise execute it reentrantly inside the first
+          // handler.
+          dispatch_sync(dispatch_get_main_queue(), ^{
+            @autoreleasepool {
+              [strongSelf mountRoute:route request:routeParams intoResponse:response];
+            }
           });
         }
-#endif
       }];
     }
   }
@@ -360,29 +338,36 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 
 - (void)registerServerKeyRouteHandlers
 {
-  [self.server get:@"/health" withBlock:^(RouteRequest *request, RouteResponse *response) {
+  // Standalone, i.e. off -routeQueue: these must stay answerable while the funnel is wedged -
+  // /health as a liveness signal, /wda/shutdown as the way out. (/mobilerun/state is deliberately
+  // the opposite; see docs/request-dispatch.md.)
+  [self.server handleMethod:@"GET" withPath:@"/health" standalone:YES block:^(RouteRequest *request, RouteResponse *response) {
     [response respondWithString:@"<!DOCTYPE html><html><title>Health Check</title><body><p>I-AM-ALIVE</p></body></html>"];
   }];
 
+  // Deprecated: no longer needed since appium-xcuitest-driver handles calibration
+  // itself (https://github.com/appium/appium-xcuitest-driver/pull/2948). Kept for
+  // backward compatibility; will be removed in a future major release.
   NSString *calibrationPage = @"<html>"
   "<title>{\"x\":null,\"y\":null}</title>"
   "<header>"
   "<script>document.addEventListener(\"click\",function(e){document.title=JSON.stringify({x:e.clientX,y:e.clientY})})</script>"
   "</header>"
   "</html>";
-  [self.server get:@"/calibrate" withBlock:^(RouteRequest *request, RouteResponse *response) {
+  [self.server handleMethod:@"GET" withPath:@"/calibrate" standalone:YES block:^(RouteRequest *request, RouteResponse *response) {
+    [FBLogger logFmt:@"The /calibrate endpoint is deprecated and will be removed in a future release"];
     [response respondWithString:calibrationPage];
   }];
 
   __weak typeof(self) weakSelf = self;
-  [self.server get:@"/wda/shutdown" withBlock:^(RouteRequest *request, RouteResponse *response) {
+  [self.server handleMethod:@"GET" withPath:@"/wda/shutdown" standalone:YES block:^(RouteRequest *request, RouteResponse *response) {
     __strong typeof(weakSelf) strongSelf = weakSelf;
     if (nil == strongSelf) {
       return;
     }
     [response respondWithString:@"Shutting down"];
-    // The delegate tears down automation state; run it on the main queue without blocking
-    // this connection's queue.
+    // Deferred so the "Shutting down" response is written to the client before
+    // webServerDidRequestShutdown: tears down the server's socket out from under it.
     dispatch_async(dispatch_get_main_queue(), ^{
       [strongSelf.delegate webServerDidRequestShutdown:strongSelf];
     });
