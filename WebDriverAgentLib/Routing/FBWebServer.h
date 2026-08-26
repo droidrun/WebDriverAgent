@@ -37,6 +37,23 @@ NS_ASSUME_NONNULL_BEGIN
  */
 - (void)stopServing;
 
+/**
+ Runs a block that touches XCUI/XCTest state on the main thread, serialized through the
+ same automation funnel the main-queue-served routes use.
+
+ Routes marked `onControlQueue` are served off the main queue, so they must not call
+ XCUI directly. Hopping straight to the main queue is not enough either: such a block
+ could be drained inside another handler's run-loop spin, which is exactly the
+ reentrancy the funnel exists to prevent. Going through the funnel first makes the
+ block wait for the in-flight automation request instead.
+
+ No-ops onto a direct call when already on the main thread (the caller is then already
+ inside the funnel), and skips the funnel hop when already running on it.
+
+ @param block The XCUI-touching work. Executed synchronously before this method returns.
+ */
++ (void)performAutomationBlockOnMainQueue:(NS_NOESCAPE dispatch_block_t)block;
+
 @end
 
 /**

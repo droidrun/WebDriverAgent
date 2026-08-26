@@ -57,6 +57,9 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 #endif
 
 
+/// Queue-specific marker used to detect that the caller already runs on the automation funnel.
+static const void *FBAutomationFunnelKey = &FBAutomationFunnelKey;
+
 @interface FBWebServer ()
 @property (nonatomic, strong) FBExceptionHandler *exceptionHandler;
 #if TARGET_OS_WATCH
@@ -146,6 +149,38 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
   }
 }
 
+/**
+ The funnel is process-wide rather than per-server instance so that off-main callers
+ (see performAutomationBlockOnMainQueue:) serialize against the very same queue the
+ route dispatch uses.
+ */
++ (dispatch_queue_t)automationFunnelQueue
+{
+  static dispatch_queue_t queue;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    queue = dispatch_queue_create("com.facebook.WebDriverAgent.automation-funnel", DISPATCH_QUEUE_SERIAL);
+    dispatch_queue_set_specific(queue, FBAutomationFunnelKey, (void *)FBAutomationFunnelKey, NULL);
+  });
+  return queue;
+}
+
++ (void)performAutomationBlockOnMainQueue:(NS_NOESCAPE dispatch_block_t)block
+{
+  if (NSThread.isMainThread) {
+    // Already inside funnel -> main, so re-entering either would deadlock.
+    block();
+    return;
+  }
+  if (NULL != dispatch_get_specific(FBAutomationFunnelKey)) {
+    dispatch_sync(dispatch_get_main_queue(), block);
+    return;
+  }
+  dispatch_sync(self.automationFunnelQueue, ^{
+    dispatch_sync(dispatch_get_main_queue(), block);
+  });
+}
+
 - (BOOL)startHTTPServer
 {
 #if TARGET_OS_WATCH
@@ -163,7 +198,7 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
   [self.server setConnectionClass:[FBHTTPConnection self]];
 #endif
 
-  self.automationQueue = dispatch_queue_create("com.facebook.WebDriverAgent.automation-funnel", DISPATCH_QUEUE_SERIAL);
+  self.automationQueue = self.class.automationFunnelQueue;
 
   [self registerRouteHandlers:[self.class collectCommandHandlerClasses]];
   [self registerServerKeyRouteHandlers];

@@ -77,6 +77,8 @@ static NSMutableDictionary<NSString *, id> *FBSocks5DisconnectedStats(void)
 #import "FBLogger.h"
 #import "FBRunLoopSpinner.h"
 #import "FBScreen.h"
+#import "FBWebServer.h"
+#import "FBXCTestDaemonsProxy.h"
 #import "XCUIApplication.h"
 #import "XCUIApplication+FBHelpers.h"
 #import "XCUIApplication+FBTouchAction.h"
@@ -90,9 +92,18 @@ static const NSTimeInterval FBSocks5PreferencesTimeout = 10.0;
 static const NSTimeInterval FBSocks5StopTimeout = 10.0;
 static const NSTimeInterval FBSocks5StatsReplyTimeout = 3.0;
 static const NSTimeInterval FBSocks5DefaultConnectTimeout = 30.0;
+/** Minimum gap between two consent taps, so a re-attempt cannot land during the dismissal animation. */
+static const uint64_t FBSocks5ConsentTapCooldownMs = 1000;
+
+static uint64_t FBSocks5NowMs(void)
+{
+  return clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) / NSEC_PER_MSEC;
+}
 
 @interface FBSocks5TunnelManager ()
 @property (nonatomic, nullable) NETunnelProviderManager *activeManager;
+/** Monotonic ms timestamp of the last consent tap dispatch; guards the re-attempt cooldown. */
+@property (nonatomic) uint64_t lastConsentTapMs;
 @end
 
 @implementation FBSocks5TunnelManager
@@ -163,36 +174,68 @@ static const NSTimeInterval FBSocks5DefaultConnectTimeout = 30.0;
 // Configurations' alert that must be confirmed before the save completion fires, so this is
 // polled from within the save wait loop. Devices with a passcode additionally ask for it,
 // which cannot be automated (documented in docs/socks5-tunnel.md).
-- (BOOL)tapConsentButtonWithLabels:(NSArray<NSString *> *)labels runner:(XCUIApplication *)runner
+// XCUI is only safe to touch from the main thread, and the socks5 routes are served off it
+// (they are marked onControlQueue so the main queue stays free to drain the NetworkExtension
+// completion handlers this class waits on). Every XCUI access below therefore hops onto the
+// automation funnel and then the main queue, which is the same path the main-queue-served
+// routes - e.g. the broadcast start/stop pair, whose consent handling this mirrors - take.
+//
+// The tap itself follows FBBroadcastManager's dismissal tap in three respects, each of which
+// this code previously got wrong and which together left the alert standing while the caller
+// believed it had been confirmed:
+//   1. It is synthesized via the SYSTEM app, not the runner. The frame is read out of
+//      SpringBoard's coordinate space and the event record is stamped with the RECEIVER's
+//      interface orientation, so synthesizing through the (backgrounded, orientation-stale)
+//      runner can land the tap somewhere else entirely.
+//   2. It is fire-and-forget. The blocking variant's acknowledgement can take the full
+//      event-synthesis timeout margin when the system sheds the event, which cannot be
+//      interrupted by the caller's much shorter spin deadline.
+//   3. Its outcome is therefore observed via state (has the alert gone / did the save
+//      complete?), never inferred from the dispatch succeeding - so the caller must keep
+//      re-attempting, paced by the cooldown below, instead of latching after one dispatch.
+- (BOOL)tapConsentButtonWithLabels:(NSArray<NSString *> *)labels
 {
-  XCUIApplication *system = XCUIApplication.fb_systemApplication;
-  for (NSString *label in labels) {
-    XCUIElement *button = system.buttons[label];
-    if (!button.exists) {
-      continue;
+  __block BOOL dispatched = NO;
+  [FBWebServer performAutomationBlockOnMainQueue:^{
+    XCUIApplication *system = XCUIApplication.fb_systemApplication;
+    for (NSString *label in labels) {
+      XCUIElement *button = system.buttons[label];
+      if (!button.exists) {
+        continue;
+      }
+      CGRect frame = button.frame;
+      if (CGRectIsEmpty(frame)) {
+        continue;
+      }
+      // Without a cooldown the next spin iteration could re-tap the same coordinates while the
+      // alert's dismissal animation is still running, landing the extra tap on the UI beneath.
+      if (FBSocks5NowMs() - self.lastConsentTapMs < FBSocks5ConsentTapCooldownMs) {
+        return;
+      }
+      CGFloat scale = (CGFloat)[FBScreen scale];
+      CGPoint center = CGPointMake(CGRectGetMidX(frame) * scale, CGRectGetMidY(frame) * scale);
+      NSArray *tapActions = @[
+        @{@"type": @"pointerDown", @"x": @(center.x), @"y": @(center.y)},
+        @{@"type": @"pause", @"duration": @60},
+        @{@"type": @"pointerUp", @"x": @(center.x), @"y": @(center.y)},
+      ];
+      NSError *tapError;
+      XCSynthesizedEventRecord *record = [system fb_mobilerunEventRecordFromActions:tapActions
+                                                                              scale:scale
+                                                                              error:&tapError];
+      if (nil == record) {
+        [FBLogger logFmt:@"socks5/connect: cannot build the tap for the VPN consent button '%@': %@",
+         label, tapError.localizedDescription];
+        return;
+      }
+      self.lastConsentTapMs = FBSocks5NowMs();
+      [FBXCTestDaemonsProxy synthesizeEventAsyncWithRecord:record];
+      [FBLogger logFmt:@"socks5/connect: dispatched a tap at the VPN consent button '%@'", label];
+      dispatched = YES;
+      return;
     }
-    CGRect frame = button.frame;
-    if (CGRectIsEmpty(frame)) {
-      continue;
-    }
-    // Tap via WDA's own event synthesis instead of XCUIElement.tap: a missed XCUIElement tap
-    // records an XCTest failure that tears down the test session (see FBBroadcastManager).
-    CGFloat scale = (CGFloat)[FBScreen scale];
-    CGPoint center = CGPointMake(CGRectGetMidX(frame) * scale, CGRectGetMidY(frame) * scale);
-    NSArray *tapActions = @[
-      @{@"type": @"pointerDown", @"x": @(center.x), @"y": @(center.y)},
-      @{@"type": @"pause", @"duration": @60},
-      @{@"type": @"pointerUp", @"x": @(center.x), @"y": @(center.y)},
-    ];
-    NSError *tapError;
-    if ([runner fb_performMobilerunActions:tapActions scale:scale error:&tapError]) {
-      [FBLogger logFmt:@"socks5/connect: tapped the VPN consent button '%@'", label];
-      return YES;
-    }
-    [FBLogger logFmt:@"socks5/connect: cannot tap the VPN consent button '%@': %@",
-     label, tapError.localizedDescription];
-  }
-  return NO;
+  }];
+  return dispatched;
 }
 
 #pragma mark - Public API
@@ -238,14 +281,16 @@ static const NSTimeInterval FBSocks5DefaultConnectTimeout = 30.0;
     saveError = err;
     saveDone = YES;
   }];
-  XCUIApplication *runner = [[XCUIApplication alloc] initWithBundleIdentifier:(NSString *)NSBundle.mainBundle.bundleIdentifier];
+  // Keep re-attempting for as long as the alert is still up: a dispatched tap can be shed by the
+  // system, so 'we dispatched one' is not evidence that it landed. tapConsentButtonWithLabels:
+  // paces the re-attempts itself and answers NO once the alert is gone.
   __block BOOL consentTapped = NO;
   [[[[FBRunLoopSpinner new] timeout:MAX(deadline.timeIntervalSinceNow, 1.0)] interval:0.3] spinUntilTrue:^BOOL{
     if (saveDone) {
       return YES;
     }
-    if (!consentTapped) {
-      consentTapped = [self tapConsentButtonWithLabels:labels runner:runner];
+    if ([self tapConsentButtonWithLabels:labels]) {
+      consentTapped = YES;
     }
     return NO;
   }];
