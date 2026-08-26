@@ -221,10 +221,16 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
   [[[[FBRunLoopSpinner new] timeout:budget] interval:0.05] spinUntilTrue:^BOOL{
     return done;
   }];
-  if (!done || nil != loadError) {
+  // Running out of budget is a timeout, not an internal fault: collapsing the two would surface
+  // a plain deadline miss as 'unknown error' instead of the documented timeout response.
+  if (!done) {
+    return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
+                        @"Timed out loading the VPN preferences");
+  }
+  if (nil != loadError) {
     return FBSocks5Fail(error, FBSocks5TunnelManagerErrorInternal,
                         [NSString stringWithFormat:@"Cannot load the VPN preferences: %@",
-                         loadError.localizedDescription ?: @"timed out"]);
+                         loadError.localizedDescription]);
   }
   if (nil != outManagers) {
     *outManagers = managers ?: @[];
@@ -496,10 +502,15 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
   [[[[FBRunLoopSpinner new] timeout:FBSocks5RemainingTimeout(deadline, FBSocks5PreferencesTimeout)] interval:0.05] spinUntilTrue:^BOOL{
     return reloadDone;
   }];
-  if (!reloadDone || nil != reloadError) {
+  // Same distinction as loadAllManagers:deadline:error: above.
+  if (!reloadDone) {
+    return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
+                        @"Timed out reloading the saved VPN configuration");
+  }
+  if (nil != reloadError) {
     return FBSocks5Fail(error, FBSocks5TunnelManagerErrorInternal,
                         [NSString stringWithFormat:@"Cannot reload the saved VPN configuration: %@",
-                         reloadError.localizedDescription ?: @"timed out"]);
+                         reloadError.localizedDescription]);
   }
 
   NSError *startError;
