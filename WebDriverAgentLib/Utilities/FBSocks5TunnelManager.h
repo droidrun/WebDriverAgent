@@ -39,6 +39,16 @@ typedef NS_ERROR_ENUM(FBSocks5TunnelManagerErrorDomain, FBSocks5TunnelManagerErr
 + (instancetype)sharedInstance;
 
 /**
+ Whether the given host bundle embeds the WebDriverAgentTunnel packet tunnel extension in its
+ PlugIns directory. Only the WebDriverAgentRunnerTunnel schemes embed it; the default runner
+ schemes build without the extension, and connect then fails with
+ FBSocks5TunnelManagerErrorUnsupported (see docs/socks5-tunnel.md).
+
+ @param bundle the host app bundle to inspect (production code passes NSBundle.mainBundle)
+ */
++ (BOOL)isTunnelExtensionEmbeddedInBundle:(NSBundle *)bundle;
+
+/**
  Installs/updates the VPN configuration for the given proxy and starts the tunnel.
  An already-running tunnel is replaced. Returns once the tunnel reports connected.
 

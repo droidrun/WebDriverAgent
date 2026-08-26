@@ -1540,13 +1540,6 @@
 			remoteGlobalIDString = FBCAFE000000000000005001;
 			remoteInfo = WebDriverAgentBroadcast;
 		};
-		FBCAFE000000000000007109 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 91F9DAE11B99DBC2001349B2 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = FBCAFE000000000000007101;
-			remoteInfo = WebDriverAgentTunnel;
-		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -4672,7 +4665,6 @@
 			dependencies = (
 				EE158B5C1CBD462500A3E3F0 /* PBXTargetDependency */,
 				FBCAFE00000000000000500A /* PBXTargetDependency */,
-				FBCAFE00000000000000710A /* PBXTargetDependency */,
 			);
 			name = WebDriverAgentRunner;
 			productName = XCTUITestRunner;
@@ -5664,11 +5656,6 @@
 			isa = PBXTargetDependency;
 			target = FBCAFE000000000000005001 /* WebDriverAgentBroadcast */;
 			targetProxy = FBCAFE000000000000005009 /* PBXContainerItemProxy */;
-		};
-		FBCAFE00000000000000710A /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = FBCAFE000000000000007101 /* WebDriverAgentTunnel */;
-			targetProxy = FBCAFE000000000000007109 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 

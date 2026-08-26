@@ -1,11 +1,17 @@
 # SOCKS5 VPN Tunnel
 
-WebDriverAgent embeds a NetworkExtension **packet tunnel provider**
+WebDriverAgent can embed a NetworkExtension **packet tunnel provider**
 (`WebDriverAgentTunnel.appex`) into the generated `WebDriverAgentRunner-Runner.app`. When
 connected, the tunnel captures the device's IPv4 traffic on a virtual interface and forwards
 it through a SOCKS5 proxy using the [hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel)
 engine (MIT) running inside the extension. WDA configures and controls the tunnel in-process
 via `NETunnelProviderManager`.
+
+The extension is **opt-in at build time**: only the `WebDriverAgentRunnerTunnel` /
+`WebDriverAgentRunnerTunnel-nodebug` schemes build and embed it. The default
+`WebDriverAgentRunner` / `WebDriverAgentRunner-nodebug` schemes produce a runner without the
+extension — no git submodule, no engine build and no paid team needed — whose socks5
+endpoints answer `unsupported operation`.
 
 The tunnel only works on **physical iOS devices** (packet tunnel providers do not run on the
 Simulator or tvOS — the endpoints answer `unsupported operation` there) and requires
@@ -61,7 +67,13 @@ Network Extension capability.
 `host`/`port`/`user` are omitted while disconnected (`user` also when the proxy needs no
 auth). Counters are cumulative since the tunnel start and reset on reconnect.
 
-## Build
+## Build (opt-in)
+
+The default runner schemes do not reference the appex at all; `connect` on such a build
+fails fast with `unsupported operation: this build does not embed the WebDriverAgentTunnel
+extension` (`disconnect` and `stats` keep answering as disconnected). To include the tunnel,
+build a `WebDriverAgentRunnerTunnel*` scheme — it builds the `WebDriverAgentTunnel` appex
+alongside the runner and carries the embed post-action.
 
 The engine is vendored as a git submodule and compiled into a static-library xcframework
 that only the appex links:
@@ -71,14 +83,15 @@ git submodule update --init --recursive
 Scripts/build-hev-socks5-tunnel.sh   # -> ThirdParty/HevSocks5Tunnel.xcframework (gitignored)
 ```
 
-`Scripts/build.sh` runs the engine build automatically for runner targets, and it is a no-op
-while the stamp file matches the submodule SHA (`--force` rebuilds). Plain `xcodebuild`
-invocations need the script run once beforehand.
+`Scripts/build.sh` runs the engine build automatically for `TARGET=tunnel_runner`, and it is
+a no-op while the stamp file matches the submodule SHA (`--force` rebuilds). Plain
+`xcodebuild` invocations of the tunnel schemes need the script run once beforehand.
 
 Like the broadcast extension, the appex cannot reach the Xcode-generated `Runner.app` through
-a regular embed phase; the scheme post-action `Scripts/embed-tunnel-extension.sh` copies it
-into `Runner.app/PlugIns`, rewrites its bundle id to `<host id>.tunnel` and re-signs
-inner-first (post-actions run on scheme-based CLI builds, including `build-for-testing`).
+a regular embed phase; the tunnel schemes' post-action `Scripts/embed-tunnel-extension.sh`
+copies it into `Runner.app/PlugIns`, rewrites its bundle id to `<host id>.tunnel` and
+re-signs inner-first (post-actions run on scheme-based CLI builds, including
+`build-for-testing`).
 
 ## Signing (device)
 
@@ -92,7 +105,7 @@ The entitlements are wired through build variables that default to empty, so reg
 them explicitly:
 
 ```bash
-xcodebuild build-for-testing -project WebDriverAgent.xcodeproj -scheme WebDriverAgentRunner \
+xcodebuild build-for-testing -project WebDriverAgent.xcodeproj -scheme WebDriverAgentRunnerTunnel \
   -destination 'id=<UDID>' -allowProvisioningUpdates \
   DEVELOPMENT_TEAM=<PAID_TEAM_ID> \
   WDA_RUNNER_ENTITLEMENTS=WebDriverAgentRunner/WebDriverAgentRunner.entitlements \

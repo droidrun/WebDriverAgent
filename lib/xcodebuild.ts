@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import {fs, logger, timing, util} from '@appium/support';
+import {logger, timing, util} from '@appium/support';
 import type {AppiumLogger, StringRecord} from '@appium/types';
 import {retryInterval} from 'asyncbox';
 import {SubProcess, exec} from 'teen_process';
@@ -227,49 +227,12 @@ export class XcodeBuild {
   }
 
   /**
-   * Builds ThirdParty/HevSocks5Tunnel.xcframework if it is not there yet.
-   *
-   * The WebDriverAgentTunnel target links that xcframework, and it is a gitignored build
-   * product, so a fresh clone or an npm install does not have one. Scripts/build.sh prepares it
-   * for the CI and bundling flows, but this class invokes xcodebuild directly and would
-   * otherwise fail immediately with "There is no XCFramework found". It cannot be fixed inside
-   * the Xcode project: xcodebuild resolves XCFramework references while computing the build
-   * graph, before any build phase of the target - or of a target it depends on - gets to run.
-   *
-   * The script is a no-op once its stamp matches, so this only costs a process spawn on
-   * subsequent launches. A failure here is logged and swallowed rather than thrown: xcodebuild
-   * reports the missing framework with a clearer message, and installations that never touch
-   * the tunnel should not be blocked by an engine build.
-   */
-  async prepareSocks5Engine(): Promise<void> {
-    const projectRoot = path.dirname(this.agentPath);
-    const scriptPath = path.join(projectRoot, 'Scripts', 'build-hev-socks5-tunnel.sh');
-    if (!(await fs.exists(scriptPath))) {
-      return;
-    }
-    // Deliberately not gated on the xcframework merely existing: one left over from an older
-    // checkout, a submodule bump, a script revision, or a half-finished build would then be
-    // linked forever. The script owns that decision - it compares a SHA-based stamp and exits
-    // cheaply when the output is current - so always let it run and answer.
-    this.log.debug('Making sure the SOCKS5 tunnel engine the WebDriverAgentTunnel target links is current');
-    try {
-      await exec(scriptPath, [], {cwd: projectRoot});
-    } catch (e) {
-      this.log.warn(
-        `Cannot build the SOCKS5 tunnel engine: ${(e as Error).message}. ` +
-        `The WebDriverAgentTunnel target will not build until ${scriptPath} succeeds.`
-      );
-    }
-  }
-
-  /**
    * Starts the xcodebuild process to build and/or test WebDriverAgent.
    * @param buildOnly - If `true`, only builds without running tests. Defaults to `false`.
    * @returns The WDA status record if tests are run, `void` if build-only
    * @throws Error if xcodebuild fails or cannot start
    */
   async start(buildOnly: boolean = false): Promise<StringRecord | void> {
-    await this.prepareSocks5Engine();
     this.xcodebuild = await this.createSubProcess(buildOnly);
 
     // wrap the start procedure in a promise so that we can catch, and report,

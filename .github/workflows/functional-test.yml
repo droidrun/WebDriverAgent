@@ -50,10 +50,6 @@ jobs:
     runs-on: ${{matrix.test_targets.HOST_OS}}
     steps:
     - uses: actions/checkout@v7
-      with:
-        # The tunnel target needs ThirdParty/hev-socks5-tunnel (and its nested
-        # submodules) present, otherwise Scripts/build.sh fails before Xcode runs.
-        submodules: recursive
     - uses: actions/setup-node@v7
       with:
         node-version: lts/*

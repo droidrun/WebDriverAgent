@@ -15,6 +15,7 @@ function define_xc_macros() {
   case "$TARGET" in
     "lib" ) XC_TARGET="WebDriverAgentLib";;
     "runner" ) XC_TARGET="WebDriverAgentRunner";;
+    "tunnel_runner" ) XC_TARGET="WebDriverAgentRunnerTunnel";;
     "tv_lib" ) XC_TARGET="WebDriverAgentLib_tvOS";;
     "tv_runner" ) XC_TARGET="WebDriverAgentRunner_tvOS";;
     "watch_lib" ) XC_TARGET="WebDriverAgentLib_watchOS";;
@@ -121,10 +122,11 @@ function fastlane_test() {
 }
 
 function prepare_socks5_engine() {
-  # The runner scheme builds the WebDriverAgentTunnel appex, which links
-  # HevSocks5Tunnel.xcframework built from the hev-socks5-tunnel submodule
-  # (no-op when the build stamp is current). See docs/socks5-tunnel.md.
-  if [[ "$TARGET" != "runner" ]]; then
+  # Only the WebDriverAgentRunnerTunnel scheme builds the WebDriverAgentTunnel appex, which
+  # links HevSocks5Tunnel.xcframework built from the hev-socks5-tunnel submodule (no-op when
+  # the build stamp is current). Plain runner builds need neither the submodule nor the
+  # engine. See docs/socks5-tunnel.md.
+  if [[ "$TARGET" != "tunnel_runner" ]]; then
     return
   fi
   local script_dir

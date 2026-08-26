@@ -23,6 +23,18 @@ static BOOL FBSocks5Fail(NSError **error, FBSocks5TunnelManagerError code, NSStr
   return NO;
 }
 
+// The tunnel appex is only embedded by the WebDriverAgentRunnerTunnel schemes (the default
+// runner schemes build without it so the hev submodule and paid-team signing stay optional);
+// its presence in the host app is what decides whether SOCKS5 support exists in this build.
+static BOOL FBSocks5TunnelExtensionEmbedded(NSBundle *bundle)
+{
+  NSString *appexPath = [bundle.bundlePath
+                         stringByAppendingPathComponent:@"PlugIns/WebDriverAgentTunnel.appex"];
+  BOOL isDirectory = NO;
+  return [NSFileManager.defaultManager fileExistsAtPath:appexPath isDirectory:&isDirectory]
+    && isDirectory;
+}
+
 static NSMutableDictionary<NSString *, id> *FBSocks5DisconnectedStats(void)
 {
   return [@{
@@ -68,6 +80,11 @@ static NSMutableDictionary<NSString *, id> *FBSocks5DisconnectedStats(void)
 - (NSDictionary<NSString *, id> *)statsDictionary
 {
   return FBSocks5DisconnectedStats().copy;
+}
+
++ (BOOL)isTunnelExtensionEmbeddedInBundle:(NSBundle *)bundle
+{
+  return FBSocks5TunnelExtensionEmbedded(bundle);
 }
 
 @end
@@ -150,6 +167,11 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
     instance = [[FBSocks5TunnelManager alloc] init];
   });
   return instance;
+}
+
++ (BOOL)isTunnelExtensionEmbeddedInBundle:(NSBundle *)bundle
+{
+  return FBSocks5TunnelExtensionEmbedded(bundle);
 }
 
 - (instancetype)init
@@ -392,6 +414,13 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
   // queued behind a 30s connect must not then be handed a fresh one-second budget.
   NSTimeInterval budget = timeout > 0 ? timeout : FBSocks5DefaultConnectTimeout;
   NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:budget];
+  if (!FBSocks5TunnelExtensionEmbedded(NSBundle.mainBundle)) {
+    FBSocks5Fail(error, FBSocks5TunnelManagerErrorUnsupported,
+                 @"This build does not embed the WebDriverAgentTunnel extension; build the"
+                 " WebDriverAgentRunnerTunnel scheme to include SOCKS5 VPN support"
+                 " (see docs/socks5-tunnel.md)");
+    return nil;
+  }
   __block NSDictionary<NSString *, id> *snapshot = nil;
   __block NSError *localError = nil;
   [self performLocked:^{

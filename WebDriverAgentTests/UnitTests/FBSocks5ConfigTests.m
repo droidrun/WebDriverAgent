@@ -8,10 +8,12 @@
 
 #import <XCTest/XCTest.h>
 
+#import "FBSocks5TunnelManager.h"
 #import "FBSocks5TunnelProtocol.h"
 #import "FBSocks5URI.h"
 
 @interface FBSocks5ConfigTests : XCTestCase
+@property (nonatomic, nullable, copy) NSString *tempBundleRoot;
 @end
 
 @implementation FBSocks5ConfigTests
@@ -72,6 +74,53 @@
   NSString *dnsLine = [NSString stringWithFormat:@"address: %@", FBSocks5TunnelMapDNSAddress];
   XCTAssertTrue([yaml containsString:@"mapdns:"]);
   XCTAssertTrue([yaml containsString:dnsLine]);
+}
+
+#pragma mark - Tunnel extension presence
+
+- (NSBundle *)makeFakeRunnerBundleWithTunnelAppex:(BOOL)withAppex
+{
+  NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+  NSString *plugIns = [root stringByAppendingPathComponent:@"PlugIns"];
+  NSError *error;
+  XCTAssertTrue([NSFileManager.defaultManager createDirectoryAtPath:plugIns
+                                        withIntermediateDirectories:YES
+                                                         attributes:nil
+                                                              error:&error],
+                @"%@", error);
+  if (withAppex) {
+    NSString *appex = [plugIns stringByAppendingPathComponent:@"WebDriverAgentTunnel.appex"];
+    XCTAssertTrue([NSFileManager.defaultManager createDirectoryAtPath:appex
+                                          withIntermediateDirectories:YES
+                                                           attributes:nil
+                                                                error:&error],
+                  @"%@", error);
+  }
+  self.tempBundleRoot = root;
+  NSBundle *bundle = [NSBundle bundleWithPath:root];
+  XCTAssertNotNil(bundle);
+  return bundle;
+}
+
+- (void)tearDown
+{
+  if (nil != self.tempBundleRoot) {
+    [NSFileManager.defaultManager removeItemAtPath:self.tempBundleRoot error:nil];
+    self.tempBundleRoot = nil;
+  }
+  [super tearDown];
+}
+
+- (void)testTunnelExtensionDetectedWhenAppexEmbedded
+{
+  NSBundle *bundle = [self makeFakeRunnerBundleWithTunnelAppex:YES];
+  XCTAssertTrue([FBSocks5TunnelManager isTunnelExtensionEmbeddedInBundle:bundle]);
+}
+
+- (void)testTunnelExtensionNotDetectedWithoutAppex
+{
+  NSBundle *bundle = [self makeFakeRunnerBundleWithTunnelAppex:NO];
+  XCTAssertFalse([FBSocks5TunnelManager isTunnelExtensionEmbeddedInBundle:bundle]);
 }
 
 @end
