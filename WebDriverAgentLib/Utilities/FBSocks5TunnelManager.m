@@ -429,8 +429,10 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
                consentButtonLabels:consentButtonLabels
                              error:&localError]) {
       // Taken before the lock is released, so the payload cannot describe a tunnel that a
-      // queued disconnect has since torn down.
-      snapshot = [self lockedStatsDictionary];
+      // queued disconnect has since torn down. Capped at the caller's deadline: the documented
+      // timeout covers the whole connect flow, so a slow provider stats reply must trim the
+      // counters (they fall back to zero) rather than blow the budget.
+      snapshot = [self lockedStatsDictionaryWithDeadline:deadline];
     }
   }];
   if (nil == snapshot && nil != error) {
@@ -643,6 +645,11 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
 
 - (NSDictionary<NSString *, id> *)lockedStatsDictionary
 {
+  return [self lockedStatsDictionaryWithDeadline:nil];
+}
+
+- (NSDictionary<NSString *, id> *)lockedStatsDictionaryWithDeadline:(nullable NSDate *)deadline
+{
   NSMutableDictionary<NSString *, id> *stats = FBSocks5DisconnectedStats();
   NETunnelProviderManager *manager = self.activeManager;
   if (nil == manager) {
@@ -665,6 +672,12 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
     stats[FBSocks5StatsKeyUser] = config[FBSocks5KeyUser];
   }
 
+  // Counters are best-effort: with the caller's budget already exhausted, skip the round trip
+  // to the extension instead of stretching the response past the documented timeout.
+  NSTimeInterval statsBudget = FBSocks5RemainingTimeout(deadline, FBSocks5StatsReplyTimeout);
+  if (statsBudget <= 0) {
+    return stats.copy;
+  }
   NETunnelProviderSession *session = (NETunnelProviderSession *)manager.connection;
   __block NSDictionary *counters = nil;
   __block BOOL done = NO;
@@ -681,7 +694,7 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
     done = YES;
   }];
   if (sent) {
-    [[[[FBRunLoopSpinner new] timeout:FBSocks5StatsReplyTimeout] interval:0.05] spinUntilTrue:^BOOL{
+    [[[[FBRunLoopSpinner new] timeout:statsBudget] interval:0.05] spinUntilTrue:^BOOL{
       return done;
     }];
   } else {
