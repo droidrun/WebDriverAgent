@@ -25,12 +25,12 @@ static const NSTimeInterval FBSocks5ConnectDefaultTimeout = 30.0;
 {
   return
   @[
-    [[FBRoute POST:@"/mobilerun/socks5/connect"] respondWithTarget:self action:@selector(handleConnect:)],
-    [[FBRoute POST:@"/mobilerun/socks5/disconnect"] respondWithTarget:self action:@selector(handleDisconnect:)],
-    [[FBRoute GET:@"/mobilerun/socks5/stats"] respondWithTarget:self action:@selector(handleStats:)],
-    [[FBRoute POST:@"/mobilerun/socks5/connect"].withoutSession respondWithTarget:self action:@selector(handleConnect:)],
-    [[FBRoute POST:@"/mobilerun/socks5/disconnect"].withoutSession respondWithTarget:self action:@selector(handleDisconnect:)],
-    [[FBRoute GET:@"/mobilerun/socks5/stats"].withoutSession respondWithTarget:self action:@selector(handleStats:)],
+    [[FBRoute POST:@"/mobilerun/socks5/connect"].onControlQueue respondWithTarget:self action:@selector(handleConnect:)],
+    [[FBRoute POST:@"/mobilerun/socks5/disconnect"].onControlQueue respondWithTarget:self action:@selector(handleDisconnect:)],
+    [[FBRoute GET:@"/mobilerun/socks5/stats"].onControlQueue respondWithTarget:self action:@selector(handleStats:)],
+    [[FBRoute POST:@"/mobilerun/socks5/connect"].withoutSession.onControlQueue respondWithTarget:self action:@selector(handleConnect:)],
+    [[FBRoute POST:@"/mobilerun/socks5/disconnect"].withoutSession.onControlQueue respondWithTarget:self action:@selector(handleDisconnect:)],
+    [[FBRoute GET:@"/mobilerun/socks5/stats"].withoutSession.onControlQueue respondWithTarget:self action:@selector(handleStats:)],
   ];
 }
 
