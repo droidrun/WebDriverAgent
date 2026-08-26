@@ -64,22 +64,28 @@ static const NSTimeInterval FBSocks5ConnectDefaultTimeout = 30.0;
   }
 
   NSError *error;
-  if (![FBSocks5TunnelManager.sharedInstance connectWithURI:uri
-                                                    timeout:timeout
-                                        consentButtonLabels:consentLabels
-                                                      error:&error]) {
+  // The snapshot comes back from inside the same lifecycle transaction as the mutation; asking
+  // for stats afterwards would let a queued disconnect slip in and make this response describe
+  // a tunnel that is already gone.
+  NSDictionary<NSString *, id> *stats =
+    [FBSocks5TunnelManager.sharedInstance connectWithURI:uri
+                                                 timeout:timeout
+                                     consentButtonLabels:consentLabels
+                                                   error:&error];
+  if (nil == stats) {
     return [self responseWithTunnelManagerError:error];
   }
-  return FBResponseWithObject(FBSocks5TunnelManager.sharedInstance.statsDictionary);
+  return FBResponseWithObject(stats);
 }
 
 + (id<FBResponsePayload>)handleDisconnect:(FBRouteRequest *)request
 {
   NSError *error;
-  if (![FBSocks5TunnelManager.sharedInstance disconnectWithError:&error]) {
+  NSDictionary<NSString *, id> *stats = [FBSocks5TunnelManager.sharedInstance disconnectWithError:&error];
+  if (nil == stats) {
     return [self responseWithTunnelManagerError:error];
   }
-  return FBResponseWithObject(FBSocks5TunnelManager.sharedInstance.statsDictionary);
+  return FBResponseWithObject(stats);
 }
 
 + (id<FBResponsePayload>)handleStats:(FBRouteRequest *)request

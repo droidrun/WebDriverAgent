@@ -62,8 +62,22 @@ waited=0
 while ! mkdir "$LOCK_DIR" 2>/dev/null; do
     owner=$(cat "$LOCK_DIR/pid" 2>/dev/null || true)
     if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-        echo "removing a stale hev-socks5-tunnel build lock left by pid $owner" >&2
-        rm -rf "$LOCK_DIR"
+        # Do NOT rm -rf the observation directly: two builders can read the same dead pid, and
+        # the slower one would then delete the lock the faster one has already re-acquired,
+        # putting both inside the shared make clean/build this lock exists to prevent. Claim it
+        # by renaming instead - mv of a directory onto a non-existent name is atomic, so exactly
+        # one builder can succeed - and only delete what we ourselves took, after re-confirming
+        # the pid inside is still the dead one we saw.
+        claimed="$LOCK_DIR.stale.$$"
+        if mv "$LOCK_DIR" "$claimed" 2>/dev/null; then
+            if [ "$(cat "$claimed/pid" 2>/dev/null || true)" = "$owner" ]; then
+                echo "reclaimed a stale hev-socks5-tunnel build lock left by pid $owner" >&2
+                rm -rf "$claimed"
+            else
+                # Somebody re-created it between our read and our rename; hand it back untouched.
+                mv "$claimed" "$LOCK_DIR" 2>/dev/null || rm -rf "$claimed"
+            fi
+        fi
         continue
     fi
     if [ "$waited" -ge "$LOCK_WAIT_SECONDS" ]; then

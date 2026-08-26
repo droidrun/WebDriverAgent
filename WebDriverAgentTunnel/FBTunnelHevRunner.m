@@ -53,7 +53,14 @@
   if (!self.isRunning || nil == exitSemaphore) {
     return YES;
   }
-  hev_socks5_tunnel_quit();
+  // hev_socks5_tunnel_quit() is not itself bounded: called before the engine has initialized its
+  // event fds - or concurrently with the engine exiting - it can block waiting for event_fds[1]
+  // to become valid. Waiting on the semaphore only afterwards would leave the whole stop
+  // unbounded, and NetworkExtension's stop callback would never fire. Issue the quit off the
+  // caller's thread so the deadline below covers the request as well as the exit.
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    hev_socks5_tunnel_quit();
+  });
   return 0 == dispatch_semaphore_wait(exitSemaphore,
                                       dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC)));
 }

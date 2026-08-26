@@ -48,19 +48,21 @@ static NSMutableDictionary<NSString *, id> *FBSocks5DisconnectedStats(void)
   return instance;
 }
 
-- (BOOL)connectWithURI:(FBSocks5URI *)uri
-               timeout:(NSTimeInterval)timeout
-   consentButtonLabels:(nullable NSArray<NSString *> *)consentButtonLabels
-                 error:(NSError **)error
+- (nullable NSDictionary<NSString *, id> *)connectWithURI:(FBSocks5URI *)uri
+                                                  timeout:(NSTimeInterval)timeout
+                                      consentButtonLabels:(nullable NSArray<NSString *> *)consentButtonLabels
+                                                    error:(NSError **)error
 {
-  return FBSocks5Fail(error, FBSocks5TunnelManagerErrorUnsupported,
-                      @"SOCKS5 tunnels require a NetworkExtension packet tunnel, which is not available on Simulator/tvOS");
+  FBSocks5Fail(error, FBSocks5TunnelManagerErrorUnsupported,
+               @"SOCKS5 tunnels require a NetworkExtension packet tunnel, which is not available on Simulator/tvOS");
+  return nil;
 }
 
-- (BOOL)disconnectWithError:(NSError **)error
+- (nullable NSDictionary<NSString *, id> *)disconnectWithError:(NSError **)error
 {
-  return FBSocks5Fail(error, FBSocks5TunnelManagerErrorUnsupported,
-                      @"SOCKS5 tunnels require a NetworkExtension packet tunnel, which is not available on Simulator/tvOS");
+  FBSocks5Fail(error, FBSocks5TunnelManagerErrorUnsupported,
+               @"SOCKS5 tunnels require a NetworkExtension packet tunnel, which is not available on Simulator/tvOS");
+  return nil;
 }
 
 - (NSDictionary<NSString *, id> *)statsDictionary
@@ -374,32 +376,40 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
 
 #pragma mark - Public API
 
-- (BOOL)connectWithURI:(FBSocks5URI *)uri
-               timeout:(NSTimeInterval)timeout
-   consentButtonLabels:(nullable NSArray<NSString *> *)consentButtonLabels
-                 error:(NSError **)error
+- (nullable NSDictionary<NSString *, id> *)connectWithURI:(FBSocks5URI *)uri
+                                                  timeout:(NSTimeInterval)timeout
+                                      consentButtonLabels:(nullable NSArray<NSString *> *)consentButtonLabels
+                                                    error:(NSError **)error
 {
-  __block BOOL succeeded = NO;
+  // Start the clock before queueing, not inside the locked body: waiting behind another
+  // operation is part of the caller's wall-clock budget, and a request with timeout:1 that
+  // queued behind a 30s connect must not then be handed a fresh one-second budget.
+  NSTimeInterval budget = timeout > 0 ? timeout : FBSocks5DefaultConnectTimeout;
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:budget];
+  __block NSDictionary<NSString *, id> *snapshot = nil;
   __block NSError *localError = nil;
   [self performLocked:^{
-    succeeded = [self lockedConnectWithURI:uri
-                                   timeout:timeout
-                       consentButtonLabels:consentButtonLabels
-                                     error:&localError];
+    if ([self lockedConnectWithURI:uri
+                          deadline:deadline
+               consentButtonLabels:consentButtonLabels
+                             error:&localError]) {
+      // Taken before the lock is released, so the payload cannot describe a tunnel that a
+      // queued disconnect has since torn down.
+      snapshot = [self lockedStatsDictionary];
+    }
   }];
-  if (!succeeded && nil != error) {
+  if (nil == snapshot && nil != error) {
     *error = localError;
   }
-  return succeeded;
+  return snapshot;
 }
 
 - (BOOL)lockedConnectWithURI:(FBSocks5URI *)uri
-                     timeout:(NSTimeInterval)timeout
+                    deadline:(NSDate *)deadline
          consentButtonLabels:(nullable NSArray<NSString *> *)consentButtonLabels
                        error:(NSError **)error
 {
-  NSTimeInterval budget = timeout > 0 ? timeout : FBSocks5DefaultConnectTimeout;
-  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:budget];
+  NSTimeInterval budget = deadline.timeIntervalSinceNow;
   NSArray<NSString *> *labels = consentButtonLabels.count > 0 ? consentButtonLabels : @[@"Allow"];
 
   [self fencePendingSaveWithDeadline:deadline];
@@ -538,17 +548,19 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
   return YES;
 }
 
-- (BOOL)disconnectWithError:(NSError **)error
+- (nullable NSDictionary<NSString *, id> *)disconnectWithError:(NSError **)error
 {
-  __block BOOL succeeded = NO;
+  __block NSDictionary<NSString *, id> *snapshot = nil;
   __block NSError *localError = nil;
   [self performLocked:^{
-    succeeded = [self lockedDisconnectWithError:&localError];
+    if ([self lockedDisconnectWithError:&localError]) {
+      snapshot = [self lockedStatsDictionary];
+    }
   }];
-  if (!succeeded && nil != error) {
+  if (nil == snapshot && nil != error) {
     *error = localError;
   }
-  return succeeded;
+  return snapshot;
 }
 
 - (BOOL)lockedDisconnectWithError:(NSError **)error

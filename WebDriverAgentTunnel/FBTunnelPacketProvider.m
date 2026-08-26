@@ -139,15 +139,17 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
                           @"Cannot reach the SOCKS5 proxy at %@:%u: %s", proxyIP, port, strerror(err)]);
   }
 
-  BOOL hasCredentials = user.length > 0;
-  uint8_t greeting[4];
-  size_t greetingLength = 0;
-  greeting[greetingLength++] = 0x05;
-  greeting[greetingLength++] = hasCredentials ? 2 : 1;
-  greeting[greetingLength++] = 0x00;                       // no authentication
-  if (hasCredentials) {
-    greeting[greetingLength++] = 0x02;                     // username/password
-  }
+  // Mirror hev_socks5_client_write_auth_methods exactly: it always offers a single method -
+  // username/password when BOTH fields are set, no-auth otherwise. Offering both here would let
+  // a proxy pick one hev never sends, so preflight would pass while every real session is
+  // rejected: a no-auth-only proxy with credentials, or a user-without-password URI, would both
+  // report connected:true over a tunnel that cannot carry traffic.
+  BOOL hasCredentials = user.length > 0 && pass.length > 0;
+  uint8_t greeting[3];
+  greeting[0] = 0x05;
+  greeting[1] = 1;
+  greeting[2] = hasCredentials ? 0x02 : 0x00;
+  const size_t greetingLength = sizeof(greeting);
   if (send(fd, greeting, greetingLength, 0) != (ssize_t)greetingLength) {
     close(fd);
     return FBTunnelError(@"The SOCKS5 proxy closed the connection during the greeting");
@@ -166,12 +168,12 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
   if (0xFF == choice[1]) {
     close(fd);
     return FBTunnelError(hasCredentials
-                         ? @"The SOCKS5 proxy rejected both supported authentication methods"
-                         : @"The SOCKS5 proxy requires authentication but no credentials were configured");
+                         ? @"The SOCKS5 proxy rejected username/password authentication"
+                         : @"The SOCKS5 proxy requires authentication, but the URI has no user AND password pair");
   }
   if (0x02 == choice[1]) {
     NSData *userData = [user dataUsingEncoding:NSUTF8StringEncoding];
-    NSData *passData = [(pass ?: @"") dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *passData = [(NSString *)pass dataUsingEncoding:NSUTF8StringEncoding];
     if (userData.length > 255 || passData.length > 255) {
       close(fd);
       return FBTunnelError(@"The SOCKS5 credentials exceed the 255 byte protocol limit");

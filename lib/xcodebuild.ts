@@ -247,10 +247,11 @@ export class XcodeBuild {
     if (!(await fs.exists(scriptPath))) {
       return;
     }
-    if (await fs.exists(path.join(projectRoot, 'ThirdParty', 'HevSocks5Tunnel.xcframework'))) {
-      return;
-    }
-    this.log.info('Building the SOCKS5 tunnel engine, which the WebDriverAgentTunnel target links');
+    // Deliberately not gated on the xcframework merely existing: one left over from an older
+    // checkout, a submodule bump, a script revision, or a half-finished build would then be
+    // linked forever. The script owns that decision - it compares a SHA-based stamp and exits
+    // cheaply when the output is current - so always let it run and answer.
+    this.log.debug('Making sure the SOCKS5 tunnel engine the WebDriverAgentTunnel target links is current');
     try {
       await exec(scriptPath, [], {cwd: projectRoot});
     } catch (e) {

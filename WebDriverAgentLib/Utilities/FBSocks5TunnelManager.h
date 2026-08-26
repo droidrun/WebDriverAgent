@@ -47,21 +47,24 @@ typedef NS_ERROR_ENUM(FBSocks5TunnelManagerErrorDomain, FBSocks5TunnelManagerErr
  @param consentButtonLabels labels to look for on the system "Add VPN Configurations" alert
         (defaults to "Allow"); pass others when the device language is not English
  @param error If there is an error, upon return contains an NSError describing the problem
- @return NO in case of a failure
+ @return The stats snapshot taken while the tunnel lifecycle was still held, or nil on failure.
+         Returning it from inside that transaction is what keeps the response truthful: a
+         separate statsDictionary call would let an overlapping disconnect run in between and
+         make a successful connect report connected:false.
  */
-- (BOOL)connectWithURI:(FBSocks5URI *)uri
-               timeout:(NSTimeInterval)timeout
-   consentButtonLabels:(nullable NSArray<NSString *> *)consentButtonLabels
-                 error:(NSError **)error;
+- (nullable NSDictionary<NSString *, id> *)connectWithURI:(FBSocks5URI *)uri
+                                                  timeout:(NSTimeInterval)timeout
+                                      consentButtonLabels:(nullable NSArray<NSString *> *)consentButtonLabels
+                                                    error:(NSError **)error;
 
 /**
  Stops the running tunnel (the VPN configuration stays installed). Succeeds when no tunnel
  is running.
 
  @param error If there is an error, upon return contains an NSError describing the problem
- @return NO in case of a failure
+ @return The stats snapshot taken while the lifecycle was still held, or nil on failure.
  */
-- (BOOL)disconnectWithError:(NSError **)error;
+- (nullable NSDictionary<NSString *, id> *)disconnectWithError:(NSError **)error;
 
 /** @return The stats payload for GET /mobilerun/socks5/stats: connected flag, proxy
  host/port/user (omitted while disconnected) and rx/tx byte/packet counters. Never fails;
