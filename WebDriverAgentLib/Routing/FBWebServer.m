@@ -100,6 +100,11 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 {
   [FBLogger logFmt:@"Built at %s %s", __DATE__, __TIME__];
   self.exceptionHandler = [FBExceptionHandler new];
+  // Snapshot the /status device info on the main thread BEFORE the server binds: once it
+  // accepts connections, an early /status request could win the dispatch_once and run the
+  // formally main-thread-only UIDevice reads on its connection queue. Unlike the version
+  // pre-warms below, this is a cheap local read that cannot delay binding.
+  [FBSessionCommands cachedDeviceInfo];
   if (![self startHTTPServer]) {
     return;
   }
@@ -110,21 +115,17 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 #endif
 
   self.keepAlive = YES;
-  // /status is served off the main queue (it uses onControlQueue), but FBSDKVersion(),
-  // FBTestmanagerdVersion() and FBSessionCommands.cachedDeviceInfo cache their result behind a
-  // dispatch_once. Burn the once-tokens here, on the main thread (UIDevice, read by
-  // cachedDeviceInfo, is formally main-thread-only UIKit API), warmed only after the server has
-  // bound: FBTestmanagerdVersion()'s legacy branch waits (with a bounded timeout) on the daemon,
-  // and a degraded daemon must not be able to prevent the server from binding. An early request
-  // that races the warm-up just blocks on the dispatch_once for at most the bounded handshake —
-  // or, if it wins the race, runs the once-body itself off-main: the same exposure every /status
-  // request had before the snapshot, now at most once.
-  // Warmed only after initialization is complete and keepAlive is set, so a shutdown that
-  // arrives while the bounded legacy handshake spins the run loop simply clears keepAlive via
-  // stopServing and the serving loop below never starts.
+  // /status is served off the main queue (it uses onControlQueue), but FBSDKVersion() and
+  // FBTestmanagerdVersion() cache their result behind a dispatch_once. Burn both once-tokens
+  // here, on the main thread, warmed only after the server has bound: FBTestmanagerdVersion()'s
+  // legacy branch waits (with a bounded timeout) on the daemon, and a degraded daemon must not
+  // be able to prevent the server from binding. An early request that races the warm-up just
+  // blocks on the dispatch_once for at most the bounded handshake. Warmed only after
+  // initialization is complete and keepAlive is set, so a shutdown that arrives while the
+  // bounded legacy handshake spins the run loop simply clears keepAlive via stopServing and the
+  // serving loop below never starts.
   FBSDKVersion();
   FBTestmanagerdVersion();
-  [FBSessionCommands cachedDeviceInfo];
   NSRunLoop *runLoop = [NSRunLoop mainRunLoop];
   while (self.keepAlive) {
     @try {

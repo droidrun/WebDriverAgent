@@ -97,6 +97,18 @@ typedef NS_ENUM(NSInteger, FBVideoStreamManagerError) {
   // after the stop-all already returned success.
   @synchronized (self.sessions) {
     startGeneration = self.stopGeneration;
+    // Advisory fast-fail so a start that is already over the cap never reaches the XCUIScreen
+    // read: under an XCUI stall it would wedge the automation funnel despite never being
+    // eligible to start. The authoritative check runs in the reservation lock below, where
+    // concurrent starts that slipped in during the lookup are still counted.
+    if (self.sessions.count + self.pendingStarts >= MAX_SESSIONS) {
+      if (error) {
+        *error = [NSError errorWithDomain:FBVideoStreamManagerErrorDomain
+                                     code:FBVideoStreamManagerErrorSessionLimitReached
+                                 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"The maximum number of concurrent screen capture sessions (%@) has been reached", @(MAX_SESSIONS)]}];
+      }
+      return nil;
+    }
   }
 
   // Read before any state is reserved or bound: XCUIScreen goes through the automation
