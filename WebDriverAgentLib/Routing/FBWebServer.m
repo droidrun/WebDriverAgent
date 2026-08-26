@@ -121,9 +121,8 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 - (BOOL)startHTTPServer
 {
   self.server = [[FBHTTPServer alloc] init];
-  // Serializes automation requests onto a single funnel so at most one is ever in flight on
-  // the main queue: non-standalone handlers are invoked on this queue and hop to main via
-  // dispatch_sync. See registerRouteHandlers: for why this is necessary.
+  // Serializes automation requests so at most one is ever in flight on the main queue; handlers
+  // are invoked here and hop to main via dispatch_sync. See registerRouteHandlers:.
   self.automationQueue = dispatch_queue_create("com.facebook.WebDriverAgent.automation-funnel", DISPATCH_QUEUE_SERIAL);
   [self.server setRouteQueue:self.automationQueue];
   [self.server setDefaultHeader:@"Server" value:@"WebDriverAgent/1.0"];
@@ -339,12 +338,9 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 
 - (void)registerServerKeyRouteHandlers
 {
-  // Registered standalone, i.e. off -routeQueue: the whole point of these three is to stay
-  // answerable while the automation funnel is wedged - /health as a liveness signal and
-  // /wda/shutdown as the way out of exactly that state. Queueing them behind the stuck request
-  // they exist to diagnose would defeat both. (/mobilerun/state is deliberately the opposite:
-  // it runs on the funnel so that a wedged queue shows up as a timeout. See
-  // docs/request-dispatch.md.)
+  // Standalone, i.e. off -routeQueue: these must stay answerable while the funnel is wedged -
+  // /health as a liveness signal, /wda/shutdown as the way out. (/mobilerun/state is deliberately
+  // the opposite; see docs/request-dispatch.md.)
   [self.server handleMethod:@"GET" withPath:@"/health" standalone:YES block:^(RouteRequest *request, RouteResponse *response) {
     [response respondWithString:@"<!DOCTYPE html><html><title>Health Check</title><body><p>I-AM-ALIVE</p></body></html>"];
   }];

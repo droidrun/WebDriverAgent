@@ -27,11 +27,10 @@ static const NSUInteger FBAudioMinPendingBytes = 64 * 1024;
 
 @property (nonatomic) NSMutableArray<nw_connection_t> *listeningClients;
 /**
- Bytes handed to the socket per client that have not finished sending. nw_connection_send buffers
- without any backpressure signal, so a client that stops draining is disconnected once its backlog
- exceeds roughly a second of stream - the same outcome the previous GCDAsyncSocket write timeout
- produced. Opus packets are not independently decodable, so dropping them (as the MJPEG server
- does with whole frames) would corrupt the stream rather than degrade it.
+ Bytes submitted to the socket but not sent yet, per client. nw_connection_send has no
+ backpressure signal, so a client that stops draining is disconnected once its backlog exceeds
+ roughly a second of stream. Opus packets are not independently decodable, so dropping them
+ would corrupt the stream rather than degrade it.
  Guarded by @synchronized (self.listeningClients).
  */
 @property (nonatomic) NSMapTable<id, NSNumber *> *pendingBytesByClient;
@@ -156,8 +155,7 @@ static const NSUInteger FBAudioMinPendingBytes = 64 * 1024;
   self.lastError = message;
 }
 
-// Roughly one second of the configured stream, mirroring the write timeout the GCDAsyncSocket
-// implementation used to disconnect slow clients with.
+// Roughly one second of stream, mirroring the write timeout that used to disconnect slow clients.
 - (NSUInteger)maxPendingBytesPerClient
 {
   return MAX(self.configuration.bitrate / 8, FBAudioMinPendingBytes);

@@ -133,11 +133,10 @@ static const NSInteger FBMaxLegacyIPhoneMajorVersion = 11;
 
 @property (nonatomic) NSMutableArray<nw_connection_t> *listeningClients;
 /**
- Bytes handed to the socket per client that have not finished sending. nw_connection_send buffers
- without any backpressure signal, so a client that stops draining is disconnected once its backlog
- exceeds roughly a second of stream - the same outcome the previous GCDAsyncSocket write timeout
- produced. Dropping frames instead (as the MJPEG server does) is not an option here: an H.264
- stream is inter-frame coded, so a dropped NAL unit corrupts decoding until the next key frame.
+ Bytes submitted to the socket but not sent yet, per client. nw_connection_send has no
+ backpressure signal, so a client that stops draining is disconnected once its backlog exceeds
+ roughly a second of stream. Dropping frames (as the MJPEG server does) is not an option: H.264
+ is inter-frame coded, so a dropped NAL unit corrupts decoding until the next key frame.
  Guarded by @synchronized (self.listeningClients).
  */
 @property (nonatomic) NSMapTable<id, NSNumber *> *pendingBytesByClient;
@@ -408,8 +407,7 @@ static const NSInteger FBMaxLegacyIPhoneMajorVersion = 11;
   [self broadcastData:annexBPictureData];
 }
 
-// Roughly one second of the configured stream, mirroring the write timeout the GCDAsyncSocket
-// implementation used to disconnect slow clients with.
+// Roughly one second of stream, mirroring the write timeout that used to disconnect slow clients.
 - (NSUInteger)maxPendingBytesPerClient
 {
   return MAX(self.configuration.bitrate / 8, FBVideoMinPendingBytes);
