@@ -119,6 +119,16 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
 /** Monotonic ms timestamp of the last consent tap dispatch; guards the re-attempt cooldown. */
 @property (nonatomic) uint64_t lastConsentTapMs;
 /**
+ Signalled when a saveToPreferences that outlived its request finally completes.
+
+ Returning from a timed-out save does not cancel it - NetworkExtension can still persist the
+ manager afterwards. A follow-up operation that ran before that landed would load no manager,
+ build a second one with the same provider id, and end up with two persisted configurations;
+ ownManagerIn: could then hand a disconnected duplicate to disconnect, which would report
+ success while the real tunnel kept running. Non-nil means such a save is still outstanding.
+ */
+@property (atomic, nullable) dispatch_semaphore_t pendingSaveSignal;
+/**
  Serializes the whole tunnel lifecycle. The socks5 routes are marked onControlQueue, and
  FBWebServer only funnels the non-control ones, so requests arriving over different HTTP
  connections reach this singleton concurrently on their own connection queues. Without this
@@ -150,6 +160,26 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
                                 (void *)FBSocks5LifecycleQueueKey, NULL);
   }
   return self;
+}
+
+/**
+ Blocks until a save left in flight by a timed-out connect settles, so the next operation sees
+ whatever it persisted instead of racing it. Safe to call from the lifecycle queue: the
+ completion is delivered on the main queue, which this queue does not occupy.
+ */
+- (void)fencePendingSaveWithDeadline:(nullable NSDate *)deadline
+{
+  dispatch_semaphore_t signal = self.pendingSaveSignal;
+  if (nil == signal) {
+    return;
+  }
+  NSTimeInterval budget = FBSocks5RemainingTimeout(deadline, FBSocks5PreferencesTimeout);
+  if (budget > 0) {
+    [FBLogger log:@"socks5: waiting for a previously timed-out VPN save to settle"];
+    dispatch_semaphore_wait(signal, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(budget * NSEC_PER_SEC)));
+  }
+  // Cleared either way: a save that outlives even this is not worth blocking every later call on.
+  self.pendingSaveSignal = nil;
 }
 
 /// Runs `block` with the lifecycle queue held, tolerating a caller that already holds it.
@@ -200,17 +230,29 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
   return YES;
 }
 
+// Returns the manager for our own provider, preferring one that is not idle. Duplicates with the
+// same provider id can exist transiently (see pendingSaveSignal); picking whichever came first
+// would let a disconnected duplicate shadow the running tunnel, so disconnect would report
+// success without stopping anything.
 - (nullable NETunnelProviderManager *)ownManagerIn:(NSArray<NETunnelProviderManager *> *)managers
 {
   NSString *providerId = self.providerBundleIdentifier;
+  NETunnelProviderManager *idleMatch = nil;
   for (NETunnelProviderManager *manager in managers) {
     NETunnelProviderProtocol *protocol = (NETunnelProviderProtocol *)manager.protocolConfiguration;
-    if ([protocol isKindOfClass:NETunnelProviderProtocol.class]
-        && [protocol.providerBundleIdentifier isEqualToString:providerId]) {
+    if (![protocol isKindOfClass:NETunnelProviderProtocol.class]
+        || ![protocol.providerBundleIdentifier isEqualToString:providerId]) {
+      continue;
+    }
+    NEVPNStatus status = manager.connection.status;
+    if (status != NEVPNStatusDisconnected && status != NEVPNStatusInvalid) {
       return manager;
     }
+    if (nil == idleMatch) {
+      idleMatch = manager;
+    }
   }
-  return nil;
+  return idleMatch;
 }
 
 - (BOOL)waitUntilStopped:(NETunnelProviderManager *)manager deadline:(nullable NSDate *)deadline
@@ -360,6 +402,7 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
   NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:budget];
   NSArray<NSString *> *labels = consentButtonLabels.count > 0 ? consentButtonLabels : @[@"Allow"];
 
+  [self fencePendingSaveWithDeadline:deadline];
   NSArray<NETunnelProviderManager *> *managers;
   if (![self loadAllManagers:&managers deadline:deadline error:error]) {
     return NO;
@@ -396,9 +439,12 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
 
   __block BOOL saveDone = NO;
   __block NSError *saveError = nil;
+  dispatch_semaphore_t saveSignal = dispatch_semaphore_create(0);
+  self.pendingSaveSignal = saveSignal;
   [manager saveToPreferencesWithCompletionHandler:^(NSError *err) {
     saveError = err;
     saveDone = YES;
+    dispatch_semaphore_signal(saveSignal);
   }];
   // Keep re-attempting for as long as the alert is still up: a dispatched tap can be shed by the
   // system, so 'we dispatched one' is not evidence that it landed. tapConsentButtonWithLabels:
@@ -423,6 +469,7 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
                          "devices with a passcode cannot confirm the VPN consent automatically",
                          consentTapped ? @"confirmed" : @"not confirmed"]);
   }
+  self.pendingSaveSignal = nil;
   if (nil != saveError) {
     return FBSocks5Fail(error, FBSocks5TunnelManagerErrorNotAuthorized,
                         [NSString stringWithFormat:@"The VPN configuration was not authorized: %@",
@@ -506,6 +553,9 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
 
 - (BOOL)lockedDisconnectWithError:(NSError **)error
 {
+  // Without this a disconnect racing a timed-out connect could load nothing, or load a duplicate
+  // that is not the tunnel actually running, and report success while the VPN stayed up.
+  [self fencePendingSaveWithDeadline:nil];
   NSArray<NETunnelProviderManager *> *managers;
   if (![self loadAllManagers:&managers deadline:nil error:error]) {
     return NO;
