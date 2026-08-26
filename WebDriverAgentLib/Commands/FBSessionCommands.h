@@ -14,6 +14,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface FBSessionCommands : NSObject <FBCommandHandler>
 
+/**
+ Device properties served by /status (OS name, OS version, device kind), snapshotted once
+ behind a dispatch_once. /status runs off the main queue while UIDevice is formally
+ main-thread-only UIKit API, so FBWebServer burns the once-token on the main thread at startup.
+ */
++ (NSDictionary<NSString *, NSString *> *)cachedDeviceInfo;
+
 @end
 
 NS_ASSUME_NONNULL_END

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) 2026-present, Droidrun.
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -10,6 +10,7 @@
 
 #import "FBBroadcastManager.h"
 #import "FBConfiguration.h"
+#import "FBLogger.h"
 #import "FBRouteRequest.h"
 #import "FBVideoStreamManager.h"
 
@@ -30,10 +31,12 @@ static const CGFloat DEFAULT_CAPTURE_QUALITY = 0.8;
     // otherwise be swallowed by 'GET /mobilerun/screencapture/:id'.
     [[FBRoute POST:@"/mobilerun/screencapture/broadcast/start"] respondWithTarget:self action:@selector(handleStartBroadcast:)],
     [[FBRoute POST:@"/mobilerun/screencapture/broadcast/stop"] respondWithTarget:self action:@selector(handleStopBroadcast:)],
+    // Not marked onControlQueue: decorating a session-required route reads FBSession's static
+    // active-session state, which the automation queue writes without synchronization.
     [[FBRoute GET:@"/mobilerun/screencapture/broadcast"] respondWithTarget:self action:@selector(handleGetBroadcastStatus:)],
     [[FBRoute POST:@"/mobilerun/screencapture/broadcast/start"].withoutSession respondWithTarget:self action:@selector(handleStartBroadcast:)],
     [[FBRoute POST:@"/mobilerun/screencapture/broadcast/stop"].withoutSession respondWithTarget:self action:@selector(handleStopBroadcast:)],
-    [[FBRoute GET:@"/mobilerun/screencapture/broadcast"].withoutSession respondWithTarget:self action:@selector(handleGetBroadcastStatus:)],
+    [[[FBRoute GET:@"/mobilerun/screencapture/broadcast"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleGetBroadcastStatus:)],
 
     [[FBRoute POST:@"/mobilerun/screencapture/start"] respondWithTarget:self action:@selector(handleStartScreenCapture:)],
     [[FBRoute POST:@"/mobilerun/screencapture/stop"] respondWithTarget:self action:@selector(handleStopAllScreenCapture:)],
@@ -43,11 +46,11 @@ static const CGFloat DEFAULT_CAPTURE_QUALITY = 0.8;
     [[FBRoute POST:@"/mobilerun/screencapture/:id/keyframe"] respondWithTarget:self action:@selector(handleRequestKeyFrame:)],
 
     [[FBRoute POST:@"/mobilerun/screencapture/start"].withoutSession respondWithTarget:self action:@selector(handleStartScreenCapture:)],
-    [[FBRoute POST:@"/mobilerun/screencapture/stop"].withoutSession respondWithTarget:self action:@selector(handleStopAllScreenCapture:)],
-    [[FBRoute GET:@"/mobilerun/screencapture"].withoutSession respondWithTarget:self action:@selector(handleListScreenCapture:)],
-    [[FBRoute GET:@"/mobilerun/screencapture/:id"].withoutSession respondWithTarget:self action:@selector(handleGetScreenCapture:)],
-    [[FBRoute POST:@"/mobilerun/screencapture/:id/stop"].withoutSession respondWithTarget:self action:@selector(handleStopScreenCapture:)],
-    [[FBRoute POST:@"/mobilerun/screencapture/:id/keyframe"].withoutSession respondWithTarget:self action:@selector(handleRequestKeyFrame:)],
+    [[[FBRoute POST:@"/mobilerun/screencapture/stop"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleStopAllScreenCapture:)],
+    [[[FBRoute GET:@"/mobilerun/screencapture"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleListScreenCapture:)],
+    [[[FBRoute GET:@"/mobilerun/screencapture/:id"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleGetScreenCapture:)],
+    [[[FBRoute POST:@"/mobilerun/screencapture/:id/stop"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleStopScreenCapture:)],
+    [[[FBRoute POST:@"/mobilerun/screencapture/:id/keyframe"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleRequestKeyFrame:)],
   ];
 }
 
@@ -69,12 +72,32 @@ static const CGFloat DEFAULT_CAPTURE_QUALITY = 0.8;
       }
     }
   }
+  NSMutableArray<NSString *> *dismissButtonLabels = [NSMutableArray array];
+  id dismissLabelsArg = request.arguments[@"dismissButtonLabels"];
+  if ([dismissLabelsArg isKindOfClass:NSArray.class]) {
+    for (id label in (NSArray *)dismissLabelsArg) {
+      if ([label isKindOfClass:NSString.class] && [(NSString *)label length] > 0) {
+        [dismissButtonLabels addObject:label];
+      }
+    }
+  }
+  NSMutableArray<NSString *> *goToApplicationButtonLabels = [NSMutableArray array];
+  id goToApplicationLabelsArg = request.arguments[@"goToApplicationButtonLabels"];
+  if ([goToApplicationLabelsArg isKindOfClass:NSArray.class]) {
+    for (id label in (NSArray *)goToApplicationLabelsArg) {
+      if ([label isKindOfClass:NSString.class] && [(NSString *)label length] > 0) {
+        [goToApplicationButtonLabels addObject:label];
+      }
+    }
+  }
   NSNumber *restoreArg = request.arguments[@"restoreForegroundApp"];
   BOOL restoreForegroundApp = [restoreArg isKindOfClass:NSNumber.class] ? restoreArg.boolValue : YES;
 
   NSError *error;
   if (![FBBroadcastManager.sharedInstance startBroadcastWithTimeout:timeout
                                                 confirmButtonLabels:confirmButtonLabels
+                                                dismissButtonLabels:dismissButtonLabels
+                                        goToApplicationButtonLabels:goToApplicationButtonLabels
                                                restoreForegroundApp:restoreForegroundApp
                                                               error:&error]) {
     if ([error.domain isEqualToString:FBBroadcastManagerErrorDomain]) {
@@ -94,8 +117,29 @@ static const CGFloat DEFAULT_CAPTURE_QUALITY = 0.8;
 
 + (id<FBResponsePayload>)handleStopBroadcast:(FBRouteRequest *)request
 {
+  NSMutableArray<NSString *> *dismissButtonLabels = [NSMutableArray array];
+  id dismissLabelsArg = request.arguments[@"dismissButtonLabels"];
+  if ([dismissLabelsArg isKindOfClass:NSArray.class]) {
+    for (id label in (NSArray *)dismissLabelsArg) {
+      if ([label isKindOfClass:NSString.class] && [(NSString *)label length] > 0) {
+        [dismissButtonLabels addObject:label];
+      }
+    }
+  }
+  NSMutableArray<NSString *> *goToApplicationButtonLabels = [NSMutableArray array];
+  id goToApplicationLabelsArg = request.arguments[@"goToApplicationButtonLabels"];
+  if ([goToApplicationLabelsArg isKindOfClass:NSArray.class]) {
+    for (id label in (NSArray *)goToApplicationLabelsArg) {
+      if ([label isKindOfClass:NSString.class] && [(NSString *)label length] > 0) {
+        [goToApplicationButtonLabels addObject:label];
+      }
+    }
+  }
+
   NSError *error;
-  if (![FBBroadcastManager.sharedInstance stopBroadcastWithError:&error]) {
+  if (![FBBroadcastManager.sharedInstance stopBroadcastWithDismissButtonLabels:dismissButtonLabels
+                                                   goToApplicationButtonLabels:goToApplicationButtonLabels
+                                                                          error:&error]) {
     return FBResponseWithStatus([FBCommandStatus timeoutErrorWithMessage:error.localizedDescription traceback:nil]);
   }
   return FBResponseWithObject([FBBroadcastManager.sharedInstance statusDictionary]);
@@ -124,6 +168,21 @@ static const CGFloat DEFAULT_CAPTURE_QUALITY = 0.8;
   NSInteger height = [request.arguments[@"height"] integerValue];
   if (width <= 0 || height <= 0) {
     return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:@"Both 'width' and 'height' must be provided as positive integers" traceback:nil]);
+  }
+
+  NSUInteger pixelBudget = 0;
+  NSUInteger deviceDefaultBudget = [FBScreenCaptureConfiguration fb_defaultPixelBudgetForMachineModel:[FBScreenCaptureConfiguration fb_machineModel]];
+  if (![FBScreenCaptureConfiguration fb_pixelBudget:&pixelBudget
+                                       fromArgument:request.arguments[@"maxPixels"]
+                                      deviceDefault:deviceDefaultBudget]) {
+    return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:@"'maxPixels' must be 0 (uncapped) or an integer of at least 4" traceback:nil]);
+  }
+  CGSize cappedSize = [FBScreenCaptureConfiguration fb_sizeForWidth:(NSUInteger)width height:(NSUInteger)height pixelBudget:pixelBudget];
+  if ((NSInteger)cappedSize.width < width || (NSInteger)cappedSize.height < height) {
+    [FBLogger logFmt:@"Capping the requested capture size %ldx%ld to %ldx%ld (pixel budget %lu)",
+     (long)width, (long)height, (long)cappedSize.width, (long)cappedSize.height, (unsigned long)pixelBudget];
+    width = (NSInteger)cappedSize.width;
+    height = (NSInteger)cappedSize.height;
   }
 
   FBScreenCaptureConfiguration *configuration = [[FBScreenCaptureConfiguration alloc] init];

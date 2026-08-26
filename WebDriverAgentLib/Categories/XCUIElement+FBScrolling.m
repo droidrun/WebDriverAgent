@@ -48,9 +48,13 @@ const CGFloat FBScrollTouchProportion = 0.75f;
 
 - (BOOL)fb_nativeScrollToVisibleWithError:(NSError **)error
 {
-  id<FBXCElementSnapshot> snapshot = [self fb_customSnapshot];
-  return nil != [self _hitPointByAttemptingToScrollToVisibleSnapshot:snapshot
-                                                               error:error];
+  [self scrollToVisible];
+  if (self.wdVisible) {
+    return YES;
+  }
+  return [[[FBErrorBuilder builder]
+           withDescriptionFormat:@"Failed to scroll element '%@' into view", self.description]
+          buildError:error];
 }
 
 - (void)fb_scrollUpByNormalizedDistance:(CGFloat)distance
@@ -194,7 +198,7 @@ const CGFloat FBScrollTouchProportion = 0.75f;
       }
       scrollCount++;
       // Wait for scroll animation
-      [self fb_waitUntilStableWithTimeout:FBConfiguration.animationCoolOffTimeout];
+      [self fb_waitUntilStableWithTimeout:FBConfiguration.sharedInstance.animationCoolOffTimeout];
     }
   }
 

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) 2026-present, Droidrun.
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -30,6 +30,14 @@ static const NSTimeInterval FAILURE_BACKOFF_MIN = 1.0;
 static const NSTimeInterval FAILURE_BACKOFF_MAX = 10.0;
 static const char *QUEUE_NAME = "Screen Capture Encoder Queue";
 
+static NSString *const FBVideoStreamManagerErrorDomain = @"com.facebook.WebDriverAgent.FBVideoStreamManager";
+// No handler switches on these yet (they surface as unknown-error responses), but distinct
+// codes keep the two start-failure modes distinguishable by more than the message text.
+typedef NS_ENUM(NSInteger, FBVideoStreamManagerError) {
+  FBVideoStreamManagerErrorSessionLimitReached = 1,
+  FBVideoStreamManagerErrorStoppedWhileStarting = 2,
+};
+
 @interface FBVideoStreamManager ()
 
 @property (nonatomic) dispatch_queue_t backgroundQueue;
@@ -39,6 +47,9 @@ static const char *QUEUE_NAME = "Screen Capture Encoder Queue";
 // bind/encoder start happens outside the lock). Counted toward the cap so concurrent starts
 // cannot collectively exceed MAX_SESSIONS.
 @property (nonatomic) NSUInteger pendingStarts;
+// Guarded by @synchronized (self.sessions). Bumped by stopAllSessions so starts already in
+// flight across it abort instead of resurrecting a capture after a completed stop-all.
+@property (nonatomic) NSUInteger stopGeneration;
 @property (nonatomic) long long mainScreenID;
 @property (nonatomic) NSUInteger consecutiveScreenshotFailures;
 @property (atomic) BOOL isStreaming;
@@ -79,14 +90,52 @@ static const char *QUEUE_NAME = "Screen Capture Encoder Queue";
   NSUInteger identifier;
   BOOL shouldStartLoop = NO;
   BOOL autoAssignPort = (0 == configuration.port);
+  NSUInteger startGeneration;
+  // Snapshot the stop generation before the XCUIScreen read below, not inside the reservation
+  // lock: a stop-all that completes while this start is stuck in that lookup would otherwise be
+  // absorbed into the start's baseline and dodge both abort checks, letting a capture appear
+  // after the stop-all already returned success.
   @synchronized (self.sessions) {
+    startGeneration = self.stopGeneration;
+    // Advisory fast-fail so a start that is already over the cap never reaches the XCUIScreen
+    // read: under an XCUI stall it would wedge the automation funnel despite never being
+    // eligible to start. The authoritative check runs in the reservation lock below, where
+    // concurrent starts that slipped in during the lookup are still counted.
+    if (self.sessions.count + self.pendingStarts >= MAX_SESSIONS) {
+      if (error) {
+        *error = [NSError errorWithDomain:FBVideoStreamManagerErrorDomain
+                                     code:FBVideoStreamManagerErrorSessionLimitReached
+                                 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"The maximum number of concurrent screen capture sessions (%@) has been reached", @(MAX_SESSIONS)]}];
+      }
+      return nil;
+    }
+  }
+
+  // Read before any state is reserved or bound: XCUIScreen goes through the automation
+  // machinery, and if it ever wedges it must strand nothing — no sessions-monitor hold (the
+  // control-marked capture routes stop/list/get/keyframe block on that lock and are supposed
+  // to stay wedge-immune), no pendingStarts reservation, and no bound-but-uninserted session
+  // that stopAllSessions cannot see or stop.
+  long long mainScreenID = [XCUIScreen.mainScreen displayID];
+
+  @synchronized (self.sessions) {
+    if (self.stopGeneration != startGeneration) {
+      // A stop-all ran to completion while this start was reading the display ID. Reject before
+      // reserving anything; the client's stop already promised this capture would not outlive it.
+      if (error) {
+        *error = [NSError errorWithDomain:FBVideoStreamManagerErrorDomain
+                                     code:FBVideoStreamManagerErrorStoppedWhileStarting
+                                 userInfo:@{NSLocalizedDescriptionKey: @"The screen capture session was stopped while it was starting"}];
+      }
+      return nil;
+    }
     // Count in-flight starts toward the cap: their sessions are not inserted until after the
     // (slow) bind/encoder start, so without this two concurrent starts could both pass the check
     // and exceed MAX_SESSIONS.
     if (self.sessions.count + self.pendingStarts >= MAX_SESSIONS) {
       if (error) {
-        *error = [NSError errorWithDomain:@"com.facebook.WebDriverAgent.FBVideoStreamManager"
-                                     code:1
+        *error = [NSError errorWithDomain:FBVideoStreamManagerErrorDomain
+                                     code:FBVideoStreamManagerErrorSessionLimitReached
                                  userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"The maximum number of concurrent screen capture sessions (%@) has been reached", @(MAX_SESSIONS)]}];
       }
       return nil;
@@ -115,16 +164,43 @@ static const char *QUEUE_NAME = "Screen Capture Encoder Queue";
   }
 
   NSUInteger generation = 0;
+  BOOL abortedByStopAll = NO;
   @synchronized (self.sessions) {
-    self.pendingStarts -= 1;
-    self.sessions[@(identifier)] = session;
-    self.mainScreenID = [XCUIScreen.mainScreen displayID];
-    if (!self.isStreaming) {
-      self.isStreaming = YES;
-      self.loopGeneration += 1;
-      shouldStartLoop = YES;
+    if (self.stopGeneration != startGeneration) {
+      // A stop-all ran to completion while this start's bind/encoder setup was in flight outside
+      // the lock. Abort instead of inserting a session the stop-all already promised was gone.
+      self.pendingStarts -= 1;
+      abortedByStopAll = YES;
+    } else {
+      self.pendingStarts -= 1;
+      self.sessions[@(identifier)] = session;
+      self.mainScreenID = mainScreenID;
+      if (!self.isStreaming) {
+        self.isStreaming = YES;
+        self.loopGeneration += 1;
+        shouldStartLoop = YES;
+      }
+      generation = self.loopGeneration;
+      // Attach the session to the broadcast extension (if connected): the session keeps serving
+      // locally encoded screenshot frames until the extension's first key frame arrives.
+      session.onBroadcastKeyFrameNeeded = ^(NSUInteger sessionIdentifier) {
+        [FBBroadcastManager.sharedInstance requestKeyFrameForSession:sessionIdentifier];
+      };
+      // notifySessionAdded: only enqueues onto the broadcast control server's own serial queue
+      // (verified), and sending it under the sessions lock guarantees a stop that removes this
+      // session — which must take the same lock first — always enqueues its REMOVE after our ADD.
+      [FBBroadcastManager.sharedInstance notifySessionAdded:session];
     }
-    generation = self.loopGeneration;
+  }
+
+  if (abortedByStopAll) {
+    [session stop];
+    if (error) {
+      *error = [NSError errorWithDomain:FBVideoStreamManagerErrorDomain
+                                   code:FBVideoStreamManagerErrorStoppedWhileStarting
+                               userInfo:@{NSLocalizedDescriptionKey: @"The screen capture session was stopped while it was starting"}];
+    }
+    return nil;
   }
 
   if (shouldStartLoop) {
@@ -134,12 +210,6 @@ static const char *QUEUE_NAME = "Screen Capture Encoder Queue";
       [weakSelf captureFrameWithGeneration:generation];
     });
   }
-  // Attach the session to the broadcast extension (if connected): the session keeps serving
-  // locally encoded screenshot frames until the extension's first key frame arrives.
-  session.onBroadcastKeyFrameNeeded = ^(NSUInteger sessionIdentifier) {
-    [FBBroadcastManager.sharedInstance requestKeyFrameForSession:sessionIdentifier];
-  };
-  [FBBroadcastManager.sharedInstance notifySessionAdded:session];
   [FBLogger logFmt:@"Started screen capture session %@ (%@ %@x%@) on port %@",
    @(identifier), session.toDictionary[@"codec"], @(configuration.width), @(configuration.height), @(configuration.port)];
   return session;
@@ -244,6 +314,10 @@ static const char *QUEUE_NAME = "Screen Capture Encoder Queue";
     snapshot = self.sessions.allValues;
     [self.sessions removeAllObjects];
     self.isStreaming = NO;
+    // Bump the barrier: any start already past this method's own lock acquisition (i.e. mid
+    // bind/encoder setup) will see its stale startGeneration on re-entry and abort rather than
+    // resurrect a session after this stop-all has completed.
+    self.stopGeneration += 1;
   }
   for (FBVideoStreamSession *session in snapshot) {
     [session stop];

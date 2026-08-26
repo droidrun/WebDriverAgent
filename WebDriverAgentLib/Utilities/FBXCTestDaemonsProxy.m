@@ -21,6 +21,7 @@
 #import "XCTRunnerDaemonSession.h"
 #import "XCUIApplication.h"
 #import "XCUIDevice.h"
+#import "XCSynthesizedEventRecord.h"
 
 #define LAUNCH_APP_TIMEOUT_SEC 300
 
@@ -80,10 +81,10 @@ static void swizzledLaunchApp(id self, SEL _cmd, NSString *path, NSString *bundl
 #pragma clang diagnostic pop
 }
 
-+ (id<XCTestManager_ManagerInterface>)testRunnerProxy
++ (id<XCTMessagingChannel_RunnerToDaemon>)testRunnerProxy
 {
-  static id<XCTestManager_ManagerInterface> proxy = nil;
-  if ([FBConfiguration shouldUseSingletonTestManager]) {
+  static id<XCTMessagingChannel_RunnerToDaemon> proxy = nil;
+  if (FBConfiguration.sharedInstance.shouldUseSingletonTestManager) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
       [FBLogger logFmt:@"Using singleton test manager"];
@@ -97,7 +98,7 @@ static void swizzledLaunchApp(id self, SEL _cmd, NSString *path, NSString *bundl
   return proxy;
 }
 
-+ (id<XCTestManager_ManagerInterface>)retrieveTestRunnerProxy
++ (id<XCTMessagingChannel_RunnerToDaemon>)retrieveTestRunnerProxy
 {
   return ((XCTRunnerDaemonSession *)[XCTRunnerDaemonSession sharedSession]).daemonProxy;
 }
@@ -105,7 +106,12 @@ static void swizzledLaunchApp(id self, SEL _cmd, NSString *path, NSString *bundl
 + (BOOL)synthesizeEventWithRecord:(XCSynthesizedEventRecord *)record error:(NSError *__autoreleasing*)error
 {
   __block NSError *innerError = nil;
-  [FBRunLoopSpinner spinUntilCompletion:^(void(^completion)(void)){
+  // maximumOffset is the record's total scheduled duration in seconds, so quick taps get a
+  // short deadline while long W3C action chains still fit. A synthesis whose completion never
+  // arrives (e.g. the event was shed by the system under load) must fail this one request
+  // instead of blocking the automation queue forever.
+  NSTimeInterval timeout = record.maximumOffset + FBConfiguration.sharedInstance.eventSynthesisTimeoutMargin;
+  BOOL didComplete = [FBRunLoopSpinner spinUntilCompletion:^(void(^completion)(void)){
     void (^errorHandler)(NSError *) = ^(NSError *invokeError) {
       if (nil != invokeError) {
         innerError = invokeError;
@@ -113,13 +119,18 @@ static void swizzledLaunchApp(id self, SEL _cmd, NSString *path, NSString *bundl
       completion();
     };
 
-    XCEventGeneratorHandler handlerBlock = ^(XCSynthesizedEventRecord *innerRecord, NSError *invokeError) {
+    void (^handlerBlock)(XCSynthesizedEventRecord *, NSError *) = ^(XCSynthesizedEventRecord *innerRecord, NSError *invokeError) {
       errorHandler(invokeError);
     };
     [[XCUIDevice.sharedDevice eventSynthesizer] synthesizeEvent:record completion:(id)^(BOOL result, NSError *invokeError) {
       handlerBlock(record, invokeError);
     }];
-  }];
+  } timeout:timeout];
+  if (!didComplete) {
+    return [[[FBErrorBuilder builder]
+             withDescriptionFormat:@"The synthesized event was not acknowledged within %.1f seconds. The event delivery pipeline may be overloaded", timeout]
+            buildError:error];
+  }
   if (nil != innerError) {
     if (error) {
       *error = innerError;
@@ -127,6 +138,15 @@ static void swizzledLaunchApp(id self, SEL _cmd, NSString *path, NSString *bundl
     return NO;
   }
   return YES;
+}
+
++ (void)synthesizeEventAsyncWithRecord:(XCSynthesizedEventRecord *)record
+{
+  [[XCUIDevice.sharedDevice eventSynthesizer] synthesizeEvent:record completion:(id)^(BOOL result, NSError *invokeError) {
+    if (nil != invokeError) {
+      [FBLogger logFmt:@"Asynchronous event synthesis failed: %@", invokeError.localizedDescription];
+    }
+  }];
 }
 
 + (BOOL)openURL:(NSURL *)url usingApplication:(NSString *)bundleId error:(NSError *__autoreleasing*)error

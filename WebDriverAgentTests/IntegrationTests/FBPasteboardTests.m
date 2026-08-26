@@ -51,6 +51,9 @@
 
 - (void)testGetPasteboard
 {
+  XCTSkipIf(SYSTEM_VERSION_GREATER_THAN_OR_EQUAL_TO(@"27.0"),
+            @"FIXME: Pasteboard retrieval has opposite button behavior on platform version 27.");
+
   NSString *text = @"Happy copying";
   XCUIElement *textField = self.testedApplication.textFields[@"aIdentifier"];
   NSError *error;
@@ -87,5 +90,3 @@
 }
 
 @end
-
-

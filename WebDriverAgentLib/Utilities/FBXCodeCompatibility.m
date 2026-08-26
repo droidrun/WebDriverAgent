@@ -15,7 +15,18 @@
 #import "XCUIApplication+FBHelpers.h"
 #import "XCUIElementQuery.h"
 #import "FBXCTestDaemonsProxy.h"
-#import "XCTestManager_ManagerInterface-Protocol.h"
+#import "XCTCapabilities.h"
+#import "XCTMessagingChannel_RunnerToDaemon-Protocol.h"
+#import "XCTRunnerDaemonSession.h"
+
+/**
+ Legacy testmanagerd (pre-Xcode 15) protocol-version handshake. Xcode 15+ testmanagerd replaced
+ this with named XCTCapabilities negotiation and no longer declares this selector at all, so it
+ does not appear in the modern XCTMessagingChannel_RunnerToDaemon protocol surface.
+ */
+@protocol FBXCTestManagerLegacyProtocolVersionExchanging <NSObject>
+- (void)_XCT_exchangeProtocolVersion:(unsigned long long)version reply:(void (^)(unsigned long long code))reply;
+@end
 
 @implementation XCUIElementQuery (FBCompatibility)
 
@@ -26,7 +37,7 @@
 
 - (XCUIElement *)fb_firstMatch
 {
-  if (FBConfiguration.useFirstMatch) {
+  if (FBConfiguration.sharedInstance.useFirstMatch) {
     XCUIElement* match = self.firstMatch;
     return [match exists] ? match : nil;
   }
@@ -35,7 +46,7 @@
 
 - (NSArray<XCUIElement *> *)fb_allMatches
 {
-  return FBConfiguration.boundElementsByIndex
+  return FBConfiguration.sharedInstance.boundElementsByIndex
     ? self.allElementsBoundByIndex
     : self.allElementsBoundByAccessibilityElement;
 }
@@ -51,6 +62,11 @@
 }
 
 @end
+
+// Bounds the legacy testmanagerd protocol-version exchange below. A daemon that never replies
+// (observed on some legacy configurations) must not be able to hang startup indefinitely; the
+// value is diagnostic-only, so timing out and moving on is safe.
+static const NSTimeInterval FBProtocolVersionExchangeTimeout = 30.0;
 
 @implementation XCPointerEvent (FBXcodeCompatibility)
 
@@ -71,15 +87,35 @@ NSInteger FBTestmanagerdVersion(void)
   static dispatch_once_t getTestmanagerdVersion;
   static NSInteger testmanagerdVersion;
   dispatch_once(&getTestmanagerdVersion, ^{
-    id<XCTestManager_ManagerInterface> proxy = [FBXCTestDaemonsProxy testRunnerProxy];
+    id<XCTMessagingChannel_RunnerToDaemon> proxy = [FBXCTestDaemonsProxy testRunnerProxy];
     if ([(NSObject *)proxy respondsToSelector:@selector(_XCT_exchangeProtocolVersion:reply:)]) {
-      [FBRunLoopSpinner spinUntilCompletion:^(void(^completion)(void)){
-        [proxy _XCT_exchangeProtocolVersion:testmanagerdVersion reply:^(unsigned long long code) {
-          testmanagerdVersion = (NSInteger) code;
+      id<FBXCTestManagerLegacyProtocolVersionExchanging> legacyProxy = (id<FBXCTestManagerLegacyProtocolVersionExchanging>)proxy;
+      // The reply lands in a block-local so a late response (after the bounded wait below has
+      // given up and dispatch_once has completed) never writes the shared static while
+      // concurrent readers may be using it; late replies are simply ignored.
+      __block NSInteger exchangedVersion = 0;
+      BOOL exchanged = [FBRunLoopSpinner spinUntilCompletion:^(void(^completion)(void)){
+        [legacyProxy _XCT_exchangeProtocolVersion:testmanagerdVersion reply:^(unsigned long long code) {
+          exchangedVersion = (NSInteger) code;
           completion();
         }];
-      }];
+      } timeout:FBProtocolVersionExchangeTimeout];
+      if (exchanged) {
+        testmanagerdVersion = exchangedVersion;
+      } else {
+        [FBLogger log:@"Timed out waiting for the testmanagerd protocol version exchange"];
+        // testmanagerdVersion stays at its default (diagnostic-only).
+      }
     } else {
+      // Modern testmanagerd (Xcode 15+) has already negotiated named XCTCapabilities by the time
+      // a daemon session exists, instead of a single scalar protocol version. There is no direct
+      // integer equivalent to report here (this value is diagnostic-only, surfaced via the
+      // 'testmanagerdVersion' session capability), so keep reporting the existing "assume
+      // newest/full-featured" sentinel, while confirming capabilities did negotiate successfully.
+      XCTCapabilities *capabilities = [XCTRunnerDaemonSession sharedSession].remoteInterfaceCapabilities;
+      if (nil == capabilities) {
+        [FBLogger log:@"Could not retrieve testmanagerd capabilities"];
+      }
       testmanagerdVersion = 0xFFFF;
     }
   });

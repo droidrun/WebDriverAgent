@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) 2026-present, Droidrun.
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -48,6 +48,40 @@ typedef NS_ENUM(NSUInteger, FBVideoStreamSource) {
 @property (nonatomic) FBVideoFraming framing;
 /** The TCP port the encoded stream is broadcast on. */
 @property (nonatomic) uint16_t port;
+
+/**
+ The raw device model identifier (e.g. 'iPhone11,2'), resolved via sysctl. On the simulator the
+ simulated device's identifier is returned instead of the host architecture.
+ */
++ (NSString *)fb_machineModel;
+
+/**
+ The pixel budget (maximum width*height) that is safe for sustained capture on the given device
+ model, or 0 when the model has no default cap.
+ */
++ (NSUInteger)fb_defaultPixelBudgetForMachineModel:(NSString *)machineModel;
+
+/**
+ Scales width/height down (aspect-preserving, rounded down to even values) until
+ width*height <= budget. A budget of 0, a size already within budget, or a degenerate size is
+ returned unchanged. For budgets >= 4 the returned size never exceeds the budget; the aspect
+ ratio may be sacrificed for extreme aspect inputs where the minimum encodable size (2x2) would
+ otherwise push the product back over budget. Budgets 1..3 cannot be honored (2x2 = 4 is the
+ minimum encodable size) and are rejected at the API boundary before this method is called.
+ */
++ (CGSize)fb_sizeForWidth:(NSUInteger)width height:(NSUInteger)height pixelBudget:(NSUInteger)budget;
+
+/**
+ Parses the optional 'maxPixels' request argument into a pixel budget.
+
+ @param outBudget On success: the parsed budget (0 = uncapped); the device default when the
+                  argument is absent.
+ @param maxPixels The raw request argument (nil when absent).
+ @param deviceDefault The device-class default budget applied when the argument is absent.
+ @return NO when the argument is present but is not a finite, non-negative, integral number
+         equal to 0 or of at least 4 (2x2 = 4 is the minimum encodable size).
+ */
++ (BOOL)fb_pixelBudget:(NSUInteger *)outBudget fromArgument:(nullable id)maxPixels deviceDefault:(NSUInteger)deviceDefault;
 
 @end
 

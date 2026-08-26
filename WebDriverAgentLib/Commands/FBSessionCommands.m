@@ -8,6 +8,10 @@
 
 #import "FBSessionCommands.h"
 
+#if TARGET_OS_WATCH
+@import WatchKit;
+#endif
+
 #import "FBCapabilities.h"
 #import "FBConfiguration.h"
 #import "FBExceptions.h"
@@ -44,7 +48,7 @@
     [[FBRoute GET:@"/wda/apps/list"] respondWithTarget:self action:@selector(handleGetActiveAppsList:)],
     [[FBRoute GET:@""] respondWithTarget:self action:@selector(handleGetActiveSession:)],
     [[FBRoute DELETE:@""] respondWithTarget:self action:@selector(handleDeleteSession:)],
-    [[FBRoute GET:@"/status"].withoutSession respondWithTarget:self action:@selector(handleGetStatus:)],
+    [[[FBRoute GET:@"/status"].withoutSession onControlQueue] respondWithTarget:self action:@selector(handleGetStatus:)],
 
     // Health check might modify simulator state so it should only be called in-between testing sessions
     [[FBRoute GET:@"/wda/healthcheck"].withoutSession respondWithTarget:self action:@selector(handleGetHealthCheck:)],
@@ -189,6 +193,11 @@
     [buildInfo setObject:version forKey:@"version"];
   }
 
+  NSDictionary<NSString *, NSString *> *deviceInfo = [self.class cachedDeviceInfo];
+  NSString *osName = deviceInfo[@"osName"];
+  NSString *osVersion = deviceInfo[@"osVersion"];
+  NSString *deviceKind = deviceInfo[@"deviceKind"];
+
   return FBResponseWithObject(
     @{
       @"ready" : @YES,
@@ -196,20 +205,20 @@
       @"state" : @"success",
       @"os" :
         @{
-          @"name" : [[UIDevice currentDevice] systemName],
-          @"version" : [[UIDevice currentDevice] systemVersion],
+          @"name" : osName,
+          @"version" : osVersion,
           @"sdkVersion": FBSDKVersion() ?: @"unknown",
           @"testmanagerdVersion": @(FBTestmanagerdVersion()),
         },
       @"ios" :
         @{
-#if TARGET_OS_SIMULATOR
-          @"simulatorVersion" : [[UIDevice currentDevice] systemVersion],
+#if TARGET_OS_SIMULATOR && !TARGET_OS_WATCH
+          @"simulatorVersion" : osVersion,
 #endif
           @"ip" : [XCUIDevice sharedDevice].fb_wifiIPAddress ?: [NSNull null]
         },
       @"build" : buildInfo.copy,
-      @"device": [self.class deviceNameByUserInterfaceIdiom:[UIDevice currentDevice].userInterfaceIdiom]
+      @"device": deviceKind
     }
   );
 }
@@ -264,29 +273,29 @@
 
 + (void)applyConfigurationFromCapabilities:(NSDictionary<NSString *, id> *)capabilities
 {
-  [FBConfiguration resetSessionSettings];
+  [FBConfiguration.sharedInstance resetSessionSettings];
   if (capabilities[FB_SETTING_USE_COMPACT_RESPONSES]) {
-    [FBConfiguration setShouldUseCompactResponses:[capabilities[FB_SETTING_USE_COMPACT_RESPONSES] boolValue]];
+    FBConfiguration.sharedInstance.shouldUseCompactResponses = [capabilities[FB_SETTING_USE_COMPACT_RESPONSES] boolValue];
   }
   NSString *elementResponseAttributes = capabilities[FB_SETTING_ELEMENT_RESPONSE_ATTRIBUTES];
   if (elementResponseAttributes) {
-    [FBConfiguration setElementResponseAttributes:elementResponseAttributes];
+    FBConfiguration.sharedInstance.elementResponseAttributes = elementResponseAttributes;
   }
   if (capabilities[FB_CAP_MAX_TYPING_FREQUENCY]) {
-    [FBConfiguration setMaxTypingFrequency:[capabilities[FB_CAP_MAX_TYPING_FREQUENCY] unsignedIntegerValue]];
+    FBConfiguration.sharedInstance.maxTypingFrequency = [capabilities[FB_CAP_MAX_TYPING_FREQUENCY] unsignedIntegerValue];
   }
   if (capabilities[FB_CAP_USE_SINGLETON_TEST_MANAGER]) {
-    [FBConfiguration setShouldUseSingletonTestManager:[capabilities[FB_CAP_USE_SINGLETON_TEST_MANAGER] boolValue]];
+    FBConfiguration.sharedInstance.shouldUseSingletonTestManager = [capabilities[FB_CAP_USE_SINGLETON_TEST_MANAGER] boolValue];
   }
   if (capabilities[FB_CAP_DISABLE_AUTOMATIC_SCREENSHOTS]) {
     if ([capabilities[FB_CAP_DISABLE_AUTOMATIC_SCREENSHOTS] boolValue]) {
-      [FBConfiguration disableScreenshots];
+      [FBConfiguration.sharedInstance disableScreenshots];
     } else {
-      [FBConfiguration enableScreenshots];
+      [FBConfiguration.sharedInstance enableScreenshots];
     }
   }
   if (capabilities[FB_CAP_SHOULD_TERMINATE_APP]) {
-    [FBConfiguration setShouldTerminateApp:[capabilities[FB_CAP_SHOULD_TERMINATE_APP] boolValue]];
+    FBConfiguration.sharedInstance.shouldTerminateApp = [capabilities[FB_CAP_SHOULD_TERMINATE_APP] boolValue];
   }
   NSNumber *delay = capabilities[FB_CAP_EVENT_LOOP_IDLE_DELAY_SEC];
   if ([delay doubleValue] > 0.0) {
@@ -295,11 +304,11 @@
     [XCUIApplicationProcessDelay disableEventLoopDelay];
   }
   if (nil != capabilities[FB_SETTING_WAIT_FOR_IDLE_TIMEOUT]) {
-    FBConfiguration.waitForIdleTimeout = [capabilities[FB_SETTING_WAIT_FOR_IDLE_TIMEOUT] doubleValue];
+    FBConfiguration.sharedInstance.waitForIdleTimeout = [capabilities[FB_SETTING_WAIT_FOR_IDLE_TIMEOUT] doubleValue];
   }
   if (nil == capabilities[FB_CAP_FORCE_SIMULATOR_SOFTWARE_KEYBOARD_PRESENCE] ||
       [capabilities[FB_CAP_FORCE_SIMULATOR_SOFTWARE_KEYBOARD_PRESENCE] boolValue]) {
-    [FBConfiguration forceSimulatorSoftwareKeyboardPresence];
+    [FBConfiguration.sharedInstance forceSimulatorSoftwareKeyboardPresence];
   }
 }
 
@@ -313,7 +322,7 @@
     return nil;
   }
 
-  XCUIApplication *app = [[XCUIApplication alloc] initWithBundleIdentifier:bundleID];
+  XCUIApplication *app = [[XCUIApplication alloc] initWithBundleIdentifier:(NSString * _Nonnull)bundleID];
   BOOL forceAppLaunch = nil == capabilities[FB_CAP_FORCE_APP_LAUNCH]
     || [capabilities[FB_CAP_FORCE_APP_LAUNCH] boolValue];
   XCUIApplicationState appState = app.state;
@@ -433,6 +442,29 @@
   };
 }
 
++ (NSDictionary<NSString *, NSString *> *)cachedDeviceInfo
+{
+  static NSDictionary<NSString *, NSString *> *deviceInfo;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+#if TARGET_OS_WATCH
+    deviceInfo = @{
+      @"osName": @"watchOS",
+      @"osVersion": WKInterfaceDevice.currentDevice.systemVersion,
+      @"deviceKind": @"watch",
+    };
+#else
+    deviceInfo = @{
+      @"osName": [[UIDevice currentDevice] systemName],
+      @"osVersion": [[UIDevice currentDevice] systemVersion],
+      @"deviceKind": [self deviceNameByUserInterfaceIdiom:[UIDevice currentDevice].userInterfaceIdiom],
+    };
+#endif
+  });
+  return deviceInfo;
+}
+
+#if !TARGET_OS_WATCH
 /*
  Return the device kind as lower case
 */
@@ -449,14 +481,23 @@
   return @"Unknown";
 
 }
+#endif
 
 + (NSDictionary *)currentCapabilities
 {
+#if TARGET_OS_WATCH
+  return
+  @{
+    @"device": @"watch",
+    @"sdkVersion": WKInterfaceDevice.currentDevice.systemVersion
+  };
+#else
   return
   @{
     @"device": [self.class deviceNameByUserInterfaceIdiom:[UIDevice currentDevice].userInterfaceIdiom],
     @"sdkVersion": [[UIDevice currentDevice] systemVersion]
   };
+#endif
 }
 
 +(nullable id<FBResponsePayload>)openDeepLink:(NSString *)initialUrl

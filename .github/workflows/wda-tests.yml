@@ -1,6 +1,23 @@
 name: WDA Tests
 
-on: [pull_request]
+# Only run the (expensive, ~38 macOS jobs) Xcode build/analyze/test suites
+# when files that can affect them change. CI-, docs- and JS-only PRs skip
+# this workflow entirely.
+on:
+  pull_request:
+    paths:
+      - 'WebDriverAgentLib/**'
+      - 'WebDriverAgentRunner/**'
+      - 'WebDriverAgentTests/**'
+      - 'WebDriverAgentBroadcast/**'
+      - 'PrivateHeaders/**'
+      - 'Configurations/**'
+      - 'WebDriverAgent.xcodeproj/**'
+      - 'Scripts/build.sh'
+      - 'Fastlane/**'
+      - 'Gemfile*'
+      - '.github/workflows/wda-tests.yml'
+      - '.github/actions/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -14,10 +31,10 @@ env:
   MIN_TV_DEVICE_NAME: "Apple TV 4K (3rd generation)"
   MIN_IPHONE_DEVICE_NAME: "iPhone 15 Plus"
   MIN_IPAD_DEVICE_NAME: "iPad Air 13-inch (M2)"
-  MAX_VM_IMAGE: macos-15
-  MAX_XCODE_VERSION: "26.1"
-  MAX_PLATFORM_VERSION: "26.1"
-  MAX_TV_PLATFORM_VERSION: "26.1"
+  MAX_VM_IMAGE: xcode-27
+  MAX_XCODE_VERSION: "27.0-beta"
+  MAX_PLATFORM_VERSION: "27.0"
+  MAX_TV_PLATFORM_VERSION: "27.0"
   MAX_IPHONE_DEVICE_NAME: "iPhone 17"
   MAX_TV_DEVICE_NAME: "Apple TV 4K (3rd generation)"
   MAX_IPAD_DEVICE_NAME: "iPad Air 11-inch (M2)"
@@ -114,7 +131,7 @@ jobs:
       matrix:
         config: ${{ fromJSON(needs.build_matrix.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/xcode-setup
         with:
           xcode_version: ${{ matrix.config.xcode_version }}
@@ -131,6 +148,8 @@ jobs:
           IOS_VERSION: ${{ matrix.config.ios_version }}
           TV_MODEL: ${{ matrix.config.tv_model }}
           TV_VERSION: ${{ matrix.config.tv_version }}
+          WATCH_MODEL: ${{ matrix.config.watch_model }}
+          WATCH_VERSION: ${{ matrix.config.watch_version }}
 
   analyze:
     needs: analyze_matrix
@@ -141,7 +160,7 @@ jobs:
       matrix:
         config: ${{ fromJSON(needs.analyze_matrix.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/xcode-setup
         with:
           xcode_version: ${{ matrix.config.xcode_version }}
@@ -156,6 +175,8 @@ jobs:
           IOS_VERSION: ${{ matrix.config.ios_version }}
           TV_MODEL: ${{ matrix.config.tv_model }}
           TV_VERSION: ${{ matrix.config.tv_version }}
+          WATCH_MODEL: ${{ matrix.config.watch_model }}
+          WATCH_VERSION: ${{ matrix.config.watch_version }}
 
   unit_test:
     needs: unit_test_matrix
@@ -166,7 +187,7 @@ jobs:
       matrix:
         config: ${{ fromJSON(needs.unit_test_matrix.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/xcode-setup
         with:
           xcode_version: ${{ matrix.config.xcode_version }}
@@ -191,7 +212,7 @@ jobs:
       matrix:
         config: ${{ fromJSON(needs.integration_test_matrix.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/xcode-setup
         with:
           xcode_version: ${{ matrix.config.xcode_version }}
@@ -217,5 +238,6 @@ jobs:
           IPHONE_MODEL: ${{ matrix.config.iphone_model }}
           IPAD_MODEL: ${{ matrix.config.ipad_model }}
           IOS_VERSION: ${{ matrix.config.ios_version }}
+          SKIP_TESTING: ${{ startsWith(matrix.config.ios_version, '27.') && matrix.config.action == 'int_test_3' && 'IntegrationTests_3/FBForceTouchTests/testForceTap' || '' }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 600
           FASTLANE_XCODEBUILD_SETTINGS_RETRIES: 2

@@ -24,7 +24,6 @@
 #import "FBXCTestDaemonsProxy.h"
 #import "XCUIApplication+FBQuiescence.h"
 #import "XCUIElement.h"
-#import "XCUIElement+FBClassChain.h"
 
 /*!
  The intial value for the default application property.
@@ -53,17 +52,13 @@ NSString *const FB_SAFARI_BUNDLE_ID = @"com.apple.mobilesafari";
 
 - (void)didDetectAlert:(FBAlert *)alert
 {
-  NSString *autoClickAlertSelector = FBConfiguration.autoClickAlertSelector;
+  NSString *autoClickAlertSelector = FBConfiguration.sharedInstance.autoClickAlertSelector;
   if ([autoClickAlertSelector length] > 0) {
     @try {
-      NSArray<XCUIElement*> *matches = [alert.alertElement fb_descendantsMatchingClassChain:autoClickAlertSelector
-                                                                shouldReturnAfterFirstMatch:YES];
-      if (matches.count > 0) {
-          [[matches objectAtIndex:0] tap];
-      }
+      [alert clickElementMatchingClassChain:autoClickAlertSelector];
     } @catch (NSException *e) {
       [FBLogger logFmt:@"Could not click at the alert element '%@'. Original error: %@",
-       autoClickAlertSelector, e.description];
+        autoClickAlertSelector, e.reason];
     }
     // This setting has priority over other settings if enabled
     return;
@@ -73,14 +68,17 @@ NSString *const FB_SAFARI_BUNDLE_ID = @"com.apple.mobilesafari";
     return;
   }
 
-  NSError *error;
   if ([self.defaultAlertAction isEqualToString:@"accept"]) {
-    if (![alert acceptWithError:&error]) {
-      [FBLogger logFmt:@"Cannot accept the alert. Original error: %@", error.description];
+    @try {
+      [alert accept];
+    } @catch (NSException *e) {
+      [FBLogger logFmt:@"Cannot accept the alert. Original error: %@", e.reason];
     }
   } else if ([self.defaultAlertAction isEqualToString:@"dismiss"]) {
-    if (![alert dismissWithError:&error]) {
-      [FBLogger logFmt:@"Cannot dismiss the alert. Original error: %@", error.description];
+    @try {
+      [alert dismiss];
+    } @catch (NSException *e) {
+      [FBLogger logFmt:@"Cannot dismiss the alert. Original error: %@", e.reason];
     }
   } else {
     [FBLogger logFmt:@"'%@' default alert action is unsupported", self.defaultAlertAction];
@@ -91,19 +89,31 @@ NSString *const FB_SAFARI_BUNDLE_ID = @"com.apple.mobilesafari";
 
 @implementation FBSession
 
+// Control routes (e.g. /status) are served on their own connection queue and read this
+// static concurrently with main-queue writes in markSessionActive:/kill. All reads and
+// writes of _activeSession must go through the @synchronized (FBSession.class) accessors
+// below.
 static FBSession *_activeSession = nil;
 
 + (instancetype)activeSession
 {
-  return _activeSession;
+  @synchronized (FBSession.class) {
+    return _activeSession;
+  }
 }
 
 + (void)markSessionActive:(FBSession *)session
 {
-  if (_activeSession) {
-    [_activeSession kill];
+  FBSession *previousSession;
+  @synchronized (FBSession.class) {
+    previousSession = _activeSession;
   }
-  _activeSession = session;
+  if (previousSession) {
+    [previousSession kill];
+  }
+  @synchronized (FBSession.class) {
+    _activeSession = session;
+  }
 }
 
 + (instancetype)sessionWithIdentifier:(NSString *)identifier
@@ -111,10 +121,11 @@ static FBSession *_activeSession = nil;
   if (!identifier) {
     return nil;
   }
-  if (![identifier isEqualToString:_activeSession.identifier]) {
+  FBSession *activeSession = self.activeSession;
+  if (![identifier isEqualToString:activeSession.identifier]) {
     return nil;
   }
-  return _activeSession;
+  return activeSession;
 }
 
 + (instancetype)initWithApplication:(XCUIApplication *)application
@@ -171,7 +182,11 @@ static FBSession *_activeSession = nil;
 
 - (void)kill
 {
-  if (nil == _activeSession) {
+  BOOL wasActive;
+  @synchronized (FBSession.class) {
+    wasActive = (nil != _activeSession);
+  }
+  if (!wasActive) {
     return;
   }
 
@@ -187,7 +202,7 @@ static FBSession *_activeSession = nil;
   }
 
   if (nil != self.testedApplication
-      && FBConfiguration.shouldTerminateApp
+      && FBConfiguration.sharedInstance.shouldTerminateApp
       && self.testedApplication.running
       && ![self.testedApplication fb_isSameAppAs:XCUIApplication.fb_systemApplication]) {
     @try {
@@ -197,7 +212,9 @@ static FBSession *_activeSession = nil;
     }
   }
 
-  _activeSession = nil;
+  @synchronized (FBSession.class) {
+    _activeSession = nil;
+  }
 }
 
 - (XCUIApplication *)activeApplication
@@ -213,13 +230,13 @@ static FBSession *_activeSession = nil;
     XCUIApplicationState testedAppState = self.testedApplication.state;
     if (testedAppState >= XCUIApplicationStateRunningForeground) {
       NSPredicate *searchPredicate = [NSPredicate predicateWithFormat:@"%K == %@ OR %K IN {%@, %@}",
-                                      @"elementType", @(XCUIElementTypeAlert), 
+                                      @"elementType", @(XCUIElementTypeAlert),
                                       // To look for `SBTransientOverlayWindow` elements. See https://github.com/appium/WebDriverAgent/pull/946
                                       @"identifier", @"SBTransientOverlayWindow",
                                       // To look for 'criticalAlertSetting' elements https://developer.apple.com/documentation/usernotifications/unnotificationsettings/criticalalertsetting
                                       // See https://github.com/appium/appium/issues/20835
                                       @"NotificationShortLookView"];
-      if ([FBConfiguration shouldRespectSystemAlerts]
+      if (FBConfiguration.sharedInstance.shouldRespectSystemAlerts
           && [[XCUIApplication.fb_systemApplication descendantsMatchingType:XCUIElementTypeAny]
               matchingPredicate:searchPredicate].count > 0) {
         return XCUIApplication.fb_systemApplication;

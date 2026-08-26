@@ -61,6 +61,11 @@ curl -X POST "$WDA/mobilerun/actions" -H 'Content-Type: application/json' \
 - invalid argument — body is not a JSON array, an item has no/unknown `type`, a
   `pointerDown`/`pointerMove` lacks `x`/`y`, or a `pointerUp` has no preceding down.
 - unknown error — the event synthesizer rejected the record.
+- `500 unknown error` is also returned when the synthesized event is not acknowledged by the
+  system within the action's own duration plus a safety margin (default 15 s; tune with the
+  `EVENT_SYNTHESIS_TIMEOUT_MARGIN` env var). This typically means the event delivery pipeline
+  is overloaded — the request fails, but the agent keeps serving; clients should treat it as
+  retryable or re-establish the runner.
 
 ## What it skips vs `/session/{id}/actions`
 

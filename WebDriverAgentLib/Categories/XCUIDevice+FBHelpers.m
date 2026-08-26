@@ -68,13 +68,13 @@ NSDictionary<NSString *, NSNumber *> *fb_availableButtonNames(void) {
     buttons[@"volumeup"] = @(XCUIDeviceButtonVolumeUp);     // 2
     buttons[@"volumedown"] = @(XCUIDeviceButtonVolumeDown); // 3
 #endif
-    if (@available(iOS 16.0, *)) {
+    if (@available(iOS 16.0, watchOS 9.0, *)) {
 #if __clang_major__ >= 15 // likely Xcode 15+
       if ([XCUIDevice.sharedDevice hasHardwareButton:XCUIDeviceButtonAction]) {
         buttons[@"action"] = @(XCUIDeviceButtonAction);     // 4
       }
 #endif
-#if (!TARGET_OS_SIMULATOR && __clang_major__ >= 16) // likely Xcode 16+
+#if (!TARGET_OS_SIMULATOR && !TARGET_OS_WATCH && __clang_major__ >= 16) // likely Xcode 16+; camera button does not exist on watchOS
       if ([XCUIDevice.sharedDevice hasHardwareButton:XCUIDeviceButtonCamera]) {
         buttons[@"camera"] = @(XCUIDeviceButtonCamera);
       }
@@ -85,6 +85,27 @@ NSDictionary<NSString *, NSNumber *> *fb_availableButtonNames(void) {
   return result;
 }
 #endif
+
+#if TARGET_OS_WATCH
+// Raw values from XCUIDeviceHandGesture (XCUIAutomation/XCUIDeviceHandGesture.h): doubleTap = 1, flick = 2.
+// Referenced by raw integer rather than the enum constant, and invoked via NSInvocation in
+// fb_performHandGesture:error: below, since that enum/selector was only added to the SDK in Xcode 16.3
+// (flick specifically needs watchOS 12.0/26 - see the @available check below). This way the code compiles
+// against any Xcode version; unsupported gestures/selectors are only rejected at runtime.
+NSDictionary<NSString *, NSNumber *> *fb_availableHandGestureNames(void) {
+  static dispatch_once_t onceToken;
+  static NSDictionary *result;
+  dispatch_once(&onceToken, ^{
+    NSMutableDictionary *gestures = [NSMutableDictionary dictionary];
+    gestures[@"doubletap"] = @(1);
+    if (@available(watchOS 12.0, *)) {
+      gestures[@"flick"] = @(2);
+    }
+    result = [gestures copy];
+  });
+  return result;
+}
+#endif // TARGET_OS_WATCH
 
 @implementation XCUIDevice (FBHelpers)
 
@@ -123,7 +144,21 @@ static bool fb_isLocked;
   if (fb_isLocked) {
     return YES;
   }
+#if TARGET_OS_SIMULATOR
   [self pressLockButton];
+#else
+  if (SYSTEM_VERSION_GREATER_THAN_OR_EQUAL_TO(@"27.0")) {
+    // iOS 27: pressLockButton no longer locks; use a direct IOHID Power press (0x0C/0x30, ~0.5s hold).
+    if (![self fb_performIOHIDEventWithPage:0x0C
+                                      usage:0x30
+                                   duration:0.5
+                                      error:error]) {
+      return NO;
+    }
+  } else {
+    [self pressLockButton];
+  }
+#endif
   return [[[[FBRunLoopSpinner new]
             timeout:FBScreenLockTimeout]
            timeoutErrorMessage:@"Timed out while waiting until the screen gets locked"]
@@ -160,7 +195,7 @@ static bool fb_isLocked;
 
 - (NSData *)fb_screenshotWithError:(NSError*__autoreleasing*)error
 {
-  return [FBScreenshot takeInOriginalResolutionWithQuality:FBConfiguration.screenshotQuality
+  return [FBScreenshot takeInOriginalResolutionWithQuality:FBConfiguration.sharedInstance.screenshotQuality
                                                      error:error];
 }
 
@@ -343,9 +378,9 @@ static bool fb_isLocked;
     return YES;
   }
 
-#if __clang_major__ >= 15 || (__clang_major__ >= 14 && __clang_minor__ >= 0 && __clang_patchlevel__ >= 3)
+#if !TARGET_OS_WATCH && (__clang_major__ >= 15 || (__clang_major__ >= 14 && __clang_minor__ >= 0 && __clang_patchlevel__ >= 3))
   // Xcode 14.3.1 can build these values.
-  // For iOS 17+
+  // For iOS 17+; the `appearance` property does not exist on watchOS
   if ([self respondsToSelector:NSSelectorFromString(@"appearance")]) {
     self.appearance = (XCUIDeviceAppearance) appearance;
     return YES;
@@ -371,6 +406,57 @@ static bool fb_isLocked;
   ? [NSNumber numberWithLongLong:[self appearanceMode]]
   : nil;
 }
+
+#if TARGET_OS_WATCH
+- (BOOL)fb_rotateDigitalCrown:(double)delta velocity:(nullable NSNumber *)velocity error:(NSError **)error
+{
+  SEL selector = nil == velocity
+    ? NSSelectorFromString(@"rotateDigitalCrownByDelta:")
+    : NSSelectorFromString(@"rotateDigitalCrownByDelta:withVelocity:");
+  if (nil == selector || ![self respondsToSelector:selector]) {
+    return [[[FBErrorBuilder builder]
+             withDescriptionFormat:@"Digital Crown rotation is not supported by the current Xcode SDK/OS combination"]
+            buildError:error];
+  }
+  NSMethodSignature *signature = [self methodSignatureForSelector:selector];
+  NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
+  [invocation setSelector:selector];
+  [invocation setTarget:self];
+  [invocation setArgument:&delta atIndex:2];
+  if (velocity) {
+    double velocityValue = velocity.doubleValue;
+    [invocation setArgument:&velocityValue atIndex:3];
+  }
+  [invocation invoke];
+  return YES;
+}
+
+- (BOOL)fb_performHandGesture:(NSString *)gestureName error:(NSError **)error
+{
+  NSDictionary<NSString *, NSNumber *> *availableGestures = fb_availableHandGestureNames();
+  NSNumber *gestureValue = availableGestures[gestureName.lowercaseString];
+  if (!gestureValue) {
+    NSArray *sortedKeys = [availableGestures.allKeys sortedArrayUsingSelector:@selector(compare:)];
+    return [[[FBErrorBuilder builder]
+             withDescriptionFormat:@"The hand gesture '%@' is not supported. The device under test only supports the following hand gestures: %@", gestureName, sortedKeys]
+            buildError:error];
+  }
+  SEL selector = NSSelectorFromString(@"performHandGesture:");
+  if (nil == selector || ![self respondsToSelector:selector]) {
+    return [[[FBErrorBuilder builder]
+             withDescriptionFormat:@"Hand gesture automation is not supported by the current Xcode SDK/OS combination"]
+            buildError:error];
+  }
+  NSMethodSignature *signature = [self methodSignatureForSelector:selector];
+  NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:signature];
+  [invocation setSelector:selector];
+  [invocation setTarget:self];
+  NSInteger gestureRawValue = gestureValue.integerValue;
+  [invocation setArgument:&gestureRawValue atIndex:2];
+  [invocation invoke];
+  return YES;
+}
+#endif // TARGET_OS_WATCH
 
 #if !TARGET_OS_TV
 - (BOOL)fb_setSimulatedLocation:(CLLocation *)location error:(NSError **)error

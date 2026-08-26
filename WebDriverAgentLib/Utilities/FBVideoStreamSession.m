@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2015-present, Facebook, Inc.
+ * Copyright (c) 2026-present, Droidrun.
  * All rights reserved.
  *
  * This source code is licensed under the BSD-style license found in the
@@ -13,6 +13,7 @@
 #import <netinet/in.h>
 #import <netinet/tcp.h>
 #import <sys/socket.h>
+#import <sys/sysctl.h>
 
 #import "GCDAsyncSocket.h"
 #import "FBLogger.h"
@@ -32,6 +33,97 @@ static const CGFloat FBDefaultScreenCaptureQuality = 0.8;
     _quality = FBDefaultScreenCaptureQuality;
   }
   return self;
+}
+
+// 414x896 - the largest per-frame capture load verified safe for sustained 60 fps encoding on
+// the oldest supported hardware class; larger frames make the system shed input events under
+// load, which starves automation.
+static const NSUInteger FBLegacyDevicePixelBudget = 370944;
+// iPhone11,x is the A12 generation; every major version at or below it gets the budget.
+static const NSInteger FBMaxLegacyIPhoneMajorVersion = 11;
+
++ (NSString *)fb_machineModel
+{
+#if TARGET_OS_SIMULATOR
+  // On the simulator hw.machine reports the host architecture; the simulated device model is
+  // exposed via the environment instead.
+  NSString *simulatorModel = NSProcessInfo.processInfo.environment[@"SIMULATOR_MODEL_IDENTIFIER"];
+  if (simulatorModel.length > 0) {
+    return simulatorModel;
+  }
+#endif
+  char machine[64] = {0};
+  size_t size = sizeof(machine) - 1;
+  if (0 == sysctlbyname("hw.machine", machine, &size, NULL, 0) && machine[0] != '\0') {
+    return [NSString stringWithUTF8String:machine] ?: @"";
+  }
+  return @"";
+}
+
++ (NSUInteger)fb_defaultPixelBudgetForMachineModel:(NSString *)machineModel
+{
+  static NSString *const prefix = @"iPhone";
+  if (![machineModel hasPrefix:prefix]) {
+    return 0;
+  }
+  NSScanner *scanner = [NSScanner scannerWithString:[machineModel substringFromIndex:prefix.length]];
+  NSInteger major = 0;
+  if (![scanner scanInteger:&major] || major <= 0) {
+    return 0;
+  }
+  return major <= FBMaxLegacyIPhoneMajorVersion ? FBLegacyDevicePixelBudget : 0;
+}
+
++ (CGSize)fb_sizeForWidth:(NSUInteger)width height:(NSUInteger)height pixelBudget:(NSUInteger)budget
+{
+  // width * height <= budget  <=>  width <= budget / height (integer division; exact for
+  // positive integers). The division form cannot overflow, unlike the direct product.
+  if (0 == budget || 0 == width || 0 == height || width <= budget / height) {
+    return CGSizeMake(width, height);
+  }
+  double scale = sqrt((double)budget / ((double)width * (double)height));
+  // floor + even-align only ever shrink, so the scaled product stays within the budget
+  NSUInteger scaledWidth = ((NSUInteger)floor((double)width * scale)) & ~(NSUInteger)1;
+  NSUInteger scaledHeight = ((NSUInteger)floor((double)height * scale)) & ~(NSUInteger)1;
+  scaledWidth = MAX(scaledWidth, (NSUInteger)2);
+  scaledHeight = MAX(scaledHeight, (NSUInteger)2);
+  // The minimum-size clamp can push a very skinny result back over the budget (a floored-to-zero
+  // axis becomes 2 while the other axis was scaled for the pre-clamp aspect). When that happens,
+  // shrink the larger axis to fit; honoring the budget outranks preserving the aspect ratio.
+  // Division-based comparison so the check cannot overflow.
+  if (scaledWidth > budget / scaledHeight) {
+    if (scaledWidth >= scaledHeight) {
+      scaledWidth = MAX((budget / scaledHeight) & ~(NSUInteger)1, (NSUInteger)2);
+    } else {
+      scaledHeight = MAX((budget / scaledWidth) & ~(NSUInteger)1, (NSUInteger)2);
+    }
+  }
+  return CGSizeMake(scaledWidth, scaledHeight);
+}
+
++ (BOOL)fb_pixelBudget:(NSUInteger *)outBudget fromArgument:(nullable id)maxPixels deviceDefault:(NSUInteger)deviceDefault
+{
+  if (nil == maxPixels) {
+    *outBudget = deviceDefault;
+    return YES;
+  }
+  if (![maxPixels isKindOfClass:NSNumber.class]) {
+    return NO;
+  }
+  // Validate the original numeric value: integerValue would silently truncate fractions
+  // (0.5 -> 0 disables the cap; -0.5 -> 0 passes a sign check but converts to garbage).
+  // The range check must be >=: (double)NSUIntegerMax rounds up to 2^64, so > would accept
+  // exactly 2^64 and the NSUInteger cast below would overflow (undefined behavior).
+  double rawBudget = ((NSNumber *)maxPixels).doubleValue;
+  if (!isfinite(rawBudget) || rawBudget < 0 || rawBudget != floor(rawBudget) || rawBudget >= (double)NSUIntegerMax) {
+    return NO;
+  }
+  // 1..3 cannot be honored: 2x2 = 4 is the minimum encodable size.
+  if (rawBudget > 0 && rawBudget < 4) {
+    return NO;
+  }
+  *outBudget = (NSUInteger)rawBudget;
+  return YES;
 }
 
 @end
