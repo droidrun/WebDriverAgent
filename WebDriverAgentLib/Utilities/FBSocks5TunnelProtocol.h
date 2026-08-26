@@ -51,6 +51,9 @@ extern const NSUInteger FBSocks5DefaultPort;
  hev config, so both come from these constants. */
 extern NSString *const FBSocks5TunnelIPv4Address;
 extern NSString *const FBSocks5TunnelIPv4Netmask;
+/** Link-local-ish ULA the tunnel claims so IPv6 cannot bypass it; see FBTunnelPacketProvider. */
+extern NSString *const FBSocks5TunnelIPv6Address;
+extern const NSUInteger FBSocks5TunnelIPv6PrefixLength;
 /** Synthetic resolver address hev's mapdns listens on (socks5h mode); used as the tunnel's
  DNS server so queries are hijacked into hostname-preserving CONNECTs. */
 extern NSString *const FBSocks5TunnelMapDNSAddress;

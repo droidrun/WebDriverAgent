@@ -103,6 +103,11 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
   if (fd < 0) {
     return FBTunnelError(@"Cannot create a socket to probe the SOCKS5 proxy");
   }
+  // A proxy that closes the connection mid-handshake makes send() raise SIGPIPE on Darwin,
+  // which would terminate the extension outright. The engine installs a process-wide SIGPIPE
+  // ignore, but that happens later - this probe runs before it, so opt out per socket.
+  int noSigPipe = 1;
+  setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, sizeof(noSigPipe));
   FBTunnelSetSocketTimeout(fd, FBTunnelProbeTimeout);
 
   int connected = -1;
@@ -249,11 +254,27 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
   ipv4.includedRoutes = @[NEIPv4Route.defaultRoute];
   if (!proxyIsIPv6) {
     // The engine's own TCP connection to the proxy must not loop back into the tunnel.
-    // (An IPv6 proxy needs no exclusion: the tunnel only captures IPv4.)
     ipv4.excludedRoutes = @[[[NEIPv4Route alloc] initWithDestinationAddress:proxyIP
                                                                  subnetMask:@"255.255.255.255"]];
   }
   settings.IPv4Settings = ipv4;
+
+  // Claim IPv6 as well, even though the engine only speaks IPv4. Leaving IPv6 unclaimed is not
+  // neutral: on a dual-stack device every AAAA-reachable destination would keep using the real
+  // egress while the tunnel was up, quietly defeating the point of routing through the proxy.
+  // Capturing it without an IPv6 path in hev means such traffic is dropped rather than leaked -
+  // deliberately failing closed. Connections then fall back to IPv4 through the tunnel; a
+  // genuinely IPv6-only destination becomes unreachable while connected, which is the trade
+  // this makes. Giving hev a real IPv6 interface would lift that and is the follow-up.
+  NEIPv6Settings *ipv6 = [[NEIPv6Settings alloc] initWithAddresses:@[FBSocks5TunnelIPv6Address]
+                                              networkPrefixLengths:@[@(FBSocks5TunnelIPv6PrefixLength)]];
+  ipv6.includedRoutes = @[NEIPv6Route.defaultRoute];
+  if (proxyIsIPv6) {
+    // Same reasoning as the IPv4 exclusion: keep the engine's own dial out of its own tunnel.
+    ipv6.excludedRoutes = @[[[NEIPv6Route alloc] initWithDestinationAddress:proxyIP
+                                                       networkPrefixLength:@128]];
+  }
+  settings.IPv6Settings = ipv6;
   // socks5h: point DNS at hev's mapdns so queries become hostname-preserving CONNECTs.
   // socks5: use public resolvers; the queries travel through the tunnel via the proxy's
   // UDP relay (requires a proxy with UDP ASSOCIATE support).
@@ -291,27 +312,45 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
     // as a start failure rather than letting NetworkExtension reach NEVPNStatusConnected; once
     // startup has been acknowledged, an unexpected exit tears the tunnel down instead of leaving
     // it advertised but blackholed.
+    // Acknowledgement and exit have to agree under one lock. Checking a plain flag leaves a
+    // window where the engine dies after the settle wait but before the flag is set: the exit
+    // callback reads NO and suppresses cancellation, and startup then reports success for a dead
+    // engine. Under the lock exactly one of the two paths wins - either the exit is already
+    // recorded and startup fails, or startup is acknowledged and the exit cancels the tunnel.
     dispatch_semaphore_t settled = dispatch_semaphore_create(0);
+    NSObject *startupLock = [NSObject new];
     __block BOOL startupAcknowledged = NO;
+    __block BOOL engineExited = NO;
     [runner startWithConfigYAML:yaml tunFd:tunFd exitHandler:^(int exitCode) {
       __strong typeof(weakSelf) exitSelf = weakSelf;
+      BOOL shouldCancel = NO;
+      @synchronized (startupLock) {
+        engineExited = YES;
+        shouldCancel = startupAcknowledged;
+      }
       dispatch_semaphore_signal(settled);
-      if (!startupAcknowledged || nil == exitSelf || exitSelf.isStopping) {
+      if (!shouldCancel || nil == exitSelf || exitSelf.isStopping) {
         return;
       }
       NSLog(@"WebDriverAgentTunnel: engine exited unexpectedly (code %d); cancelling the tunnel", exitCode);
       [exitSelf cancelTunnelWithError:
        FBTunnelError([NSString stringWithFormat:@"The SOCKS5 engine exited unexpectedly with code %d", exitCode])];
     }];
-    BOOL exitedEarly = 0 == dispatch_semaphore_wait(settled,
-                                                    dispatch_time(DISPATCH_TIME_NOW,
-                                                                  (int64_t)(FBTunnelEngineSettleTimeout * NSEC_PER_SEC)));
-    if (exitedEarly || !runner.isRunning) {
+    dispatch_semaphore_wait(settled, dispatch_time(DISPATCH_TIME_NOW,
+                                                   (int64_t)(FBTunnelEngineSettleTimeout * NSEC_PER_SEC)));
+    BOOL startupFailed = NO;
+    @synchronized (startupLock) {
+      if (engineExited) {
+        startupFailed = YES;
+      } else {
+        startupAcknowledged = YES;
+      }
+    }
+    if (startupFailed) {
       strongSelf.runner = nil;
       completionHandler(FBTunnelError(@"The SOCKS5 engine failed to start; check the proxy configuration"));
       return;
     }
-    startupAcknowledged = YES;
     completionHandler(nil);
   }];
 }

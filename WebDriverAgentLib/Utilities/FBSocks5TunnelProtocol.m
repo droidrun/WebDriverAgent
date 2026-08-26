@@ -29,6 +29,9 @@ const NSUInteger FBSocks5DefaultPort = 1080;
 
 NSString *const FBSocks5TunnelIPv4Address = @"198.18.0.1";
 NSString *const FBSocks5TunnelIPv4Netmask = @"255.255.255.0";
+// ULA (fc00::/7) so it cannot collide with a real global address on the device.
+NSString *const FBSocks5TunnelIPv6Address = @"fd6d:6f62:696c::1";
+const NSUInteger FBSocks5TunnelIPv6PrefixLength = 64;
 NSString *const FBSocks5TunnelMapDNSAddress = @"198.18.0.2";
 const NSUInteger FBSocks5TunnelMTU = 8500;
 

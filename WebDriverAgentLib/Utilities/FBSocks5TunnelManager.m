@@ -262,9 +262,18 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
       continue;
     }
     NSArray<XCUIElement *> *buttons = alert.buttons.allElementsBoundByIndex;
-    // "Would Like to Add VPN Configurations" is Allow / Don't Allow. Anything with a different
-    // button count is a different prompt, whatever its labels say.
+    // "Would Like to Add VPN Configurations" is Allow / Don't Allow. A different button count is
+    // a different prompt, whatever its labels say.
     if (buttons.count != 2) {
+      continue;
+    }
+    // Two buttons plus a common label is not an identity: other system permission prompts are
+    // also Allow / Don't Allow, and granting one of those instead would hand out an unrelated
+    // permission. Anchor on the alert's own text as well. "VPN" is an initialism Apple leaves
+    // untranslated in this title across locales; if that ever stops holding, the alert simply is
+    // not matched and connect fails on the save timeout, which is the safe direction to fail.
+    NSString *identity = [NSString stringWithFormat:@"%@ %@", alert.identifier ?: @"", alert.label ?: @""];
+    if ([identity rangeOfString:@"VPN" options:NSCaseInsensitiveSearch].location == NSNotFound) {
       continue;
     }
     for (XCUIElement *button in buttons) {
@@ -357,11 +366,19 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
   }
   NETunnelProviderManager *manager = [self ownManagerIn:managers] ?: [[NETunnelProviderManager alloc] init];
 
-  // Connecting while a tunnel runs replaces it.
+  // Connecting while a tunnel runs replaces it. Disconnecting counts as in-flight too: an
+  // immediate retry after a timed-out connect, or a connect racing an external VPN stop, would
+  // otherwise rewrite, save and start this very manager while its previous stop is still
+  // running - and that stop then rejects or tears down the replacement.
   NEVPNStatus status = manager.connection.status;
-  if (status == NEVPNStatusConnected || status == NEVPNStatusConnecting || status == NEVPNStatusReasserting) {
-    [FBLogger log:@"socks5/connect: stopping the already running tunnel first"];
-    [manager.connection stopVPNTunnel];
+  if (status == NEVPNStatusConnected || status == NEVPNStatusConnecting
+      || status == NEVPNStatusReasserting || status == NEVPNStatusDisconnecting) {
+    if (status == NEVPNStatusDisconnecting) {
+      [FBLogger log:@"socks5/connect: waiting for the in-flight tunnel stop to settle first"];
+    } else {
+      [FBLogger log:@"socks5/connect: stopping the already running tunnel first"];
+      [manager.connection stopVPNTunnel];
+    }
     if (![self waitUntilStopped:manager deadline:deadline]) {
       return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
                           @"Timed out stopping the previously running SOCKS5 tunnel");
