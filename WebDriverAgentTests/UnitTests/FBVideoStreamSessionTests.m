@@ -206,6 +206,10 @@ static const uint64_t kPtsMask      = ~(((uint64_t)1 << 63) | ((uint64_t)1 << 62
   XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@(2) deviceDefault:0]);
   XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@(NAN) deviceDefault:0]);
   XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@(INFINITY) deviceDefault:0]);
+  // (double)NSUIntegerMax rounds up to exactly 2^64, which does not fit in NSUInteger; the
+  // parser must reject it, not cast it (undefined behavior).
+  XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@((double)NSUIntegerMax) deviceDefault:0]);
+  XCTAssertFalse([FBScreenCaptureConfiguration fb_pixelBudget:&budget fromArgument:@(0x1p64) deviceDefault:0]);
 }
 
 @end

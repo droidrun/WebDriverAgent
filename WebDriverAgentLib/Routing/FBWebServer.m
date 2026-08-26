@@ -24,6 +24,7 @@
 #import "FBRouteRequest.h"
 #import "FBRuntimeUtils.h"
 #import "FBSession.h"
+#import "FBSessionCommands.h"
 #import "FBUnknownCommands.h"
 #import "FBConfiguration.h"
 #import "FBLogger.h"
@@ -71,6 +72,11 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 {
   [FBLogger logFmt:@"Built at %s %s", __DATE__, __TIME__];
   self.exceptionHandler = [FBExceptionHandler new];
+  // Snapshot the /status device info on the main thread BEFORE the server binds: once it
+  // accepts connections, an early /status request could win the dispatch_once and run the
+  // formally main-thread-only UIDevice reads on its connection queue. Unlike the version
+  // pre-warms below, this is a cheap local read that cannot delay binding.
+  [FBSessionCommands cachedDeviceInfo];
   if (![self startHTTPServer]) {
     return;
   }

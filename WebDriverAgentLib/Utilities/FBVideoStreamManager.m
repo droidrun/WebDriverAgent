@@ -30,6 +30,14 @@ static const NSTimeInterval FAILURE_BACKOFF_MIN = 1.0;
 static const NSTimeInterval FAILURE_BACKOFF_MAX = 10.0;
 static const char *QUEUE_NAME = "Screen Capture Encoder Queue";
 
+static NSString *const FBVideoStreamManagerErrorDomain = @"com.facebook.WebDriverAgent.FBVideoStreamManager";
+// No handler switches on these yet (they surface as unknown-error responses), but distinct
+// codes keep the two start-failure modes distinguishable by more than the message text.
+typedef NS_ENUM(NSInteger, FBVideoStreamManagerError) {
+  FBVideoStreamManagerErrorSessionLimitReached = 1,
+  FBVideoStreamManagerErrorStoppedWhileStarting = 2,
+};
+
 @interface FBVideoStreamManager ()
 
 @property (nonatomic) dispatch_queue_t backgroundQueue;
@@ -83,15 +91,51 @@ static const char *QUEUE_NAME = "Screen Capture Encoder Queue";
   BOOL shouldStartLoop = NO;
   BOOL autoAssignPort = (0 == configuration.port);
   NSUInteger startGeneration;
+  // Snapshot the stop generation before the XCUIScreen read below, not inside the reservation
+  // lock: a stop-all that completes while this start is stuck in that lookup would otherwise be
+  // absorbed into the start's baseline and dodge both abort checks, letting a capture appear
+  // after the stop-all already returned success.
   @synchronized (self.sessions) {
     startGeneration = self.stopGeneration;
+    // Advisory fast-fail so a start that is already over the cap never reaches the XCUIScreen
+    // read: under an XCUI stall it would wedge the automation funnel despite never being
+    // eligible to start. The authoritative check runs in the reservation lock below, where
+    // concurrent starts that slipped in during the lookup are still counted.
+    if (self.sessions.count + self.pendingStarts >= MAX_SESSIONS) {
+      if (error) {
+        *error = [NSError errorWithDomain:FBVideoStreamManagerErrorDomain
+                                     code:FBVideoStreamManagerErrorSessionLimitReached
+                                 userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"The maximum number of concurrent screen capture sessions (%@) has been reached", @(MAX_SESSIONS)]}];
+      }
+      return nil;
+    }
+  }
+
+  // Read before any state is reserved or bound: XCUIScreen goes through the automation
+  // machinery, and if it ever wedges it must strand nothing — no sessions-monitor hold (the
+  // control-marked capture routes stop/list/get/keyframe block on that lock and are supposed
+  // to stay wedge-immune), no pendingStarts reservation, and no bound-but-uninserted session
+  // that stopAllSessions cannot see or stop.
+  long long mainScreenID = [XCUIScreen.mainScreen displayID];
+
+  @synchronized (self.sessions) {
+    if (self.stopGeneration != startGeneration) {
+      // A stop-all ran to completion while this start was reading the display ID. Reject before
+      // reserving anything; the client's stop already promised this capture would not outlive it.
+      if (error) {
+        *error = [NSError errorWithDomain:FBVideoStreamManagerErrorDomain
+                                     code:FBVideoStreamManagerErrorStoppedWhileStarting
+                                 userInfo:@{NSLocalizedDescriptionKey: @"The screen capture session was stopped while it was starting"}];
+      }
+      return nil;
+    }
     // Count in-flight starts toward the cap: their sessions are not inserted until after the
     // (slow) bind/encoder start, so without this two concurrent starts could both pass the check
     // and exceed MAX_SESSIONS.
     if (self.sessions.count + self.pendingStarts >= MAX_SESSIONS) {
       if (error) {
-        *error = [NSError errorWithDomain:@"com.facebook.WebDriverAgent.FBVideoStreamManager"
-                                     code:1
+        *error = [NSError errorWithDomain:FBVideoStreamManagerErrorDomain
+                                     code:FBVideoStreamManagerErrorSessionLimitReached
                                  userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"The maximum number of concurrent screen capture sessions (%@) has been reached", @(MAX_SESSIONS)]}];
       }
       return nil;
@@ -130,7 +174,7 @@ static const char *QUEUE_NAME = "Screen Capture Encoder Queue";
     } else {
       self.pendingStarts -= 1;
       self.sessions[@(identifier)] = session;
-      self.mainScreenID = [XCUIScreen.mainScreen displayID];
+      self.mainScreenID = mainScreenID;
       if (!self.isStreaming) {
         self.isStreaming = YES;
         self.loopGeneration += 1;
@@ -152,8 +196,8 @@ static const char *QUEUE_NAME = "Screen Capture Encoder Queue";
   if (abortedByStopAll) {
     [session stop];
     if (error) {
-      *error = [NSError errorWithDomain:@"com.facebook.WebDriverAgent.FBVideoStreamManager"
-                                   code:1
+      *error = [NSError errorWithDomain:FBVideoStreamManagerErrorDomain
+                                   code:FBVideoStreamManagerErrorStoppedWhileStarting
                                userInfo:@{NSLocalizedDescriptionKey: @"The screen capture session was stopped while it was starting"}];
     }
     return nil;
