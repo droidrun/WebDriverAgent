@@ -15,13 +15,13 @@
 #import <sys/socket.h>
 #import <sys/sysctl.h>
 
-#import "GCDAsyncSocket.h"
 #import "FBLogger.h"
 #import "FBPixelBufferConverter.h"
 #import "FBScrcpyPacket.h"
 #import "FBTCPSocket.h"
 
-static const NSTimeInterval FRAME_TIMEOUT = 1.0;
+// Smallest per-client send backlog tolerated regardless of the configured bitrate.
+static const NSUInteger FBVideoMinPendingBytes = 512 * 1024;
 
 static const CGFloat FBDefaultScreenCaptureQuality = 0.8;
 
@@ -131,7 +131,15 @@ static const NSInteger FBMaxLegacyIPhoneMajorVersion = 11;
 
 @interface FBVideoStreamSession () <FBTCPSocketDelegate, FBVideoEncoderDelegate>
 
-@property (nonatomic) NSMutableArray<GCDAsyncSocket *> *listeningClients;
+@property (nonatomic) NSMutableArray<nw_connection_t> *listeningClients;
+/**
+ Bytes submitted to the socket but not sent yet, per client. nw_connection_send has no
+ backpressure signal, so a client that stops draining is disconnected once its backlog exceeds
+ roughly a second of stream. Dropping frames (as the MJPEG server does) is not an option: H.264
+ is inter-frame coded, so a dropped NAL unit corrupts decoding until the next key frame.
+ Guarded by @synchronized (self.listeningClients).
+ */
+@property (nonatomic) NSMapTable<id, NSNumber *> *pendingBytesByClient;
 @property (nonatomic, nullable) FBVideoEncoder *encoder;
 @property (nonatomic, nullable) FBPixelBufferConverter *converter;
 @property (nonatomic, nullable) FBTCPSocket *broadcaster;
@@ -156,6 +164,8 @@ static const NSInteger FBMaxLegacyIPhoneMajorVersion = 11;
     _identifier = identifier;
     _configuration = configuration;
     _listeningClients = [NSMutableArray array];
+    _pendingBytesByClient = [NSMapTable mapTableWithKeyOptions:(NSPointerFunctionsOptions)(NSMapTableObjectPointerPersonality | NSMapTableStrongMemory)
+                                                  valueOptions:(NSPointerFunctionsOptions)NSMapTableStrongMemory];
     _active = NO;
     _activeSource = FBVideoStreamSourceScreenshot;
   }
@@ -167,6 +177,8 @@ static const NSInteger FBMaxLegacyIPhoneMajorVersion = 11;
   // Bind the broadcast socket first so that a port conflict fails cheaply.
   self.broadcaster = [[FBTCPSocket alloc] initWithPort:self.configuration.port];
   self.broadcaster.delegate = self;
+  // Send small NAL units immediately instead of letting Nagle coalesce them.
+  self.broadcaster.noDelay = YES;
   if (![self.broadcaster startWithError:error]) {
     self.broadcaster = nil;
     return NO;
@@ -201,6 +213,7 @@ static const NSInteger FBMaxLegacyIPhoneMajorVersion = 11;
     }
     @synchronized (self.listeningClients) {
       [self.listeningClients removeAllObjects];
+      [self.pendingBytesByClient removeAllObjects];
     }
     if (nil != self.encoder) {
       self.encoder.delegate = nil;
@@ -394,56 +407,90 @@ static const NSInteger FBMaxLegacyIPhoneMajorVersion = 11;
   [self broadcastData:annexBPictureData];
 }
 
+// Roughly one second of stream, mirroring the write timeout that used to disconnect slow clients.
+- (NSUInteger)maxPendingBytesPerClient
+{
+  return MAX(self.configuration.bitrate / 8, FBVideoMinPendingBytes);
+}
+
+// Caller must hold @synchronized (self.listeningClients).
+- (void)sendData:(NSData *)data toClient:(nw_connection_t)client
+{
+  NSUInteger pending = [self.pendingBytesByClient objectForKey:client].unsignedIntegerValue;
+  if (pending > self.maxPendingBytesPerClient) {
+    [FBLogger logFmt:@"Screen capture session %@: dropping a client that is not draining its socket (%@ bytes pending)",
+     @(self.identifier), @(pending)];
+    [self.listeningClients removeObject:client];
+    [self.pendingBytesByClient removeObjectForKey:client];
+    // -didClientDisconnect: follows from the cancellation and cleans up anything left.
+    nw_connection_cancel(client);
+    return;
+  }
+  [self.pendingBytesByClient setObject:@(pending + data.length) forKey:client];
+  NSUInteger sentLength = data.length;
+  __weak typeof(self) weakSelf = self;
+  [self.broadcaster writeData:data toClient:client completion:^(BOOL didSucceed) {
+    __strong typeof(weakSelf) strongSelf = weakSelf;
+    if (nil == strongSelf) {
+      return;
+    }
+    @synchronized (strongSelf.listeningClients) {
+      NSUInteger stillPending = [strongSelf.pendingBytesByClient objectForKey:client].unsignedIntegerValue;
+      if (stillPending > sentLength) {
+        [strongSelf.pendingBytesByClient setObject:@(stillPending - sentLength) forKey:client];
+      } else {
+        [strongSelf.pendingBytesByClient removeObjectForKey:client];
+      }
+    }
+  }];
+}
+
 - (void)broadcastData:(NSData *)data
 {
   if (data.length == 0) {
     return;
   }
   @synchronized (self.listeningClients) {
-    for (GCDAsyncSocket *client in self.listeningClients) {
-      // Slow clients should fail/close instead of buffering indefinitely.
-      [client writeData:data withTimeout:FRAME_TIMEOUT tag:0];
+    // Copied because -sendData:toClient: can remove a stalled client from the array.
+    for (nw_connection_t client in self.listeningClients.copy) {
+      [self sendData:data toClient:client];
     }
   }
 }
 
 #pragma mark - <FBTCPSocketDelegate>
 
-- (void)didClientConnect:(GCDAsyncSocket *)newClient
+- (void)didClientConnect:(nw_connection_t)newClient
 {
-  [FBLogger logFmt:@"Screen capture session %@: client connected at %@:%d",
-   @(self.identifier), newClient.connectedHost, newClient.connectedPort];
-  // Disable Nagle's algorithm so small NAL units are sent immediately, keeping latency low.
-  [self.class enableNoDelayForClient:newClient];
+  [FBLogger logFmt:@"Screen capture session %@: client connected", @(self.identifier)];
+  // Hand the latest parameter sets to the new client and force a key frame so it can start
+  // decoding immediately. In scrcpy mode the parameter sets are wrapped as a config packet.
+  NSData *parameterSets = [self currentParameterSets];
   @synchronized (self.listeningClients) {
     if (![self.listeningClients containsObject:newClient]) {
       [self.listeningClients addObject:newClient];
     }
-  }
-  // Hand the latest parameter sets to the new client and force a key frame so it can start
-  // decoding immediately. In scrcpy mode the parameter sets are wrapped as a config packet.
-  NSData *parameterSets = [self currentParameterSets];
-  if (parameterSets.length > 0) {
-    NSData *payload = self.configuration.framing == FBVideoFramingScrcpy
-      ? FBScrcpyPacketCreate(parameterSets, FBScrcpyFlagConfig, 0)
-      : parameterSets;
-    [newClient writeData:payload withTimeout:FRAME_TIMEOUT tag:0];
+    if (parameterSets.length > 0) {
+      NSData *payload = self.configuration.framing == FBVideoFramingScrcpy
+        ? FBScrcpyPacketCreate(parameterSets, FBScrcpyFlagConfig, 0)
+        : parameterSets;
+      [self sendData:payload toClient:newClient];
+    }
   }
   [self requestKeyFrame];
-  // Keep reading (and discarding) any client bytes so disconnects are detected promptly.
-  [newClient readDataWithTimeout:-1 tag:0];
 }
 
-- (void)didClientSendData:(GCDAsyncSocket *)client
+- (void)client:(nw_connection_t)client didReceiveData:(NSData *)data
 {
-  // The stream is push-only; client payloads are ignored. Keep the read loop alive.
-  [client readDataWithTimeout:-1 tag:0];
+  // The stream is push-only; client payloads are ignored. FBTCPSocket keeps the receive loop
+  // running on its own, which is what surfaces disconnects.
 }
 
-- (void)didClientDisconnect:(GCDAsyncSocket *)client
+- (void)didClientDisconnect:(nw_connection_t)client
 {
   @synchronized (self.listeningClients) {
     [self.listeningClients removeObject:client];
+    [self.pendingBytesByClient removeObjectForKey:client];
   }
   [FBLogger logFmt:@"Screen capture session %@: client disconnected", @(self.identifier)];
 }
@@ -471,18 +518,5 @@ static const NSInteger FBMaxLegacyIPhoneMajorVersion = 11;
   };
 }
 
-+ (void)enableNoDelayForClient:(GCDAsyncSocket *)client
-{
-  [client performBlock:^{
-    int fd = client.socketFD;
-    if (fd < 0) {
-      return;
-    }
-    int flag = 1;
-    if (0 != setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag))) {
-      [FBLogger logFmt:@"Cannot enable TCP_NODELAY on the screen capture client socket (errno %d)", errno];
-    }
-  }];
-}
 
 @end

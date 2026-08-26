@@ -34,12 +34,23 @@ NSString *const FBDefaultApplicationAuto = @"auto";
 
 NSString *const FB_SAFARI_BUNDLE_ID = @"com.apple.mobilesafari";
 
+// FBXCAXClientProxy's shared accessibility channel can be stuck servicing another request.
+static const NSTimeInterval FB_IS_SYSTEM_APP_CHECK_TIMEOUT_SEC = 5.;
+// -terminate hard-asserts off the main thread, which may itself be busy - see -fb_terminate...:.
+static const NSTimeInterval FB_APP_TERMINATE_TIMEOUT_SEC = 5.;
+// How long a -kill caller that lost the race below waits for the winner's teardown to finish.
+static const NSTimeInterval FB_KILL_WAIT_TIMEOUT_SEC = 35.;
+NSString *const FBSessionWasKilledNotification = @"FBSessionWasKilledNotification";
+
 @interface FBSession ()
 @property (nullable, nonatomic) XCUIApplication *testedApplication;
 @property (nonatomic) BOOL isTestedApplicationExpectedToRun;
 @property (nonatomic) BOOL shouldAppsWaitForQuiescence;
 @property (nonatomic, nullable) FBAlertsMonitor *alertsMonitor;
 @property (nonatomic, readwrite) NSMutableDictionary<NSNumber *, NSMutableDictionary<NSString *, NSNumber *> *> *elementsVisibilityCache;
+
+- (BOOL)fb_isTestedApplicationSameAsSystemAppWithTimeout:(NSTimeInterval)timeout;
+- (void)fb_terminateTestedApplicationWithTimeout:(NSTimeInterval)timeout generation:(NSUInteger)generation;
 @end
 
 @interface FBSession (FBAlertsMonitorDelegate)
@@ -89,11 +100,44 @@ NSString *const FB_SAFARI_BUNDLE_ID = @"com.apple.mobilesafari";
 
 @implementation FBSession
 
-// Control routes (e.g. /status) are served on their own connection queue and read this
-// static concurrently with main-queue writes in markSessionActive:/kill. All reads and
-// writes of _activeSession must go through the @synchronized (FBSession.class) accessors
-// below.
+// Standalone routes (e.g. /status) are served on their own queues and read this static
+// concurrently with writes in markSessionActive:/kill. All reads and writes of
+// _activeSession must go through @synchronized (FBSession.class).
 static FBSession *_activeSession = nil;
+// Class-level, not per-instance: a caller that finds _activeSession already nil (a concurrent
+// -kill beat it there) still needs to know whether that -kill's teardown is done, since it cleared
+// the pointer before running it. See +waitForActiveTeardownWithTimeout:.
+// A count, not a flag: the wait below is bounded, so teardowns can overlap. A shared flag would
+// let the first to finish wake waiters while the other still ran, and the next session creation
+// would then bump the generation and make that teardown skip its cleanup.
+static NSUInteger _activeTeardownCount = 0;
+// Bumped by +killActiveSessionAndWaitForTeardown, i.e. when a caller takes ownership of the
+// device - before it launches anything. Since the wait there is bounded, a slow teardown can
+// still be running by then; its remaining steps mutate process-wide state (the tested app, whose
+// bundle ID the replacement usually shares, and the recording container), so each re-checks the
+// generation it started with. Guarded by @synchronized (FBSession.class).
+static NSUInteger _sessionGeneration = 0;
+
++ (NSCondition *)teardownCondition
+{
+  static NSCondition *condition;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    condition = [NSCondition new];
+  });
+  return condition;
+}
+
+// Waits (bounded) for every -kill teardown currently in progress to finish.
++ (void)waitForActiveTeardownWithTimeout:(NSTimeInterval)timeout
+{
+  NSCondition *condition = self.teardownCondition;
+  [condition lock];
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeout];
+  while (_activeTeardownCount > 0 && [condition waitUntilDate:deadline]) {
+  }
+  [condition unlock];
+}
 
 + (instancetype)activeSession
 {
@@ -102,17 +146,44 @@ static FBSession *_activeSession = nil;
   }
 }
 
++ (void)killActiveSessionAndWaitForTeardown
+{
+  FBSession *session;
+  @synchronized (FBSession.class) {
+    session = _activeSession;
+  }
+  if (nil != session) {
+    // Runs the real teardown synchronously if this call wins the race in -kill, or waits for
+    // whoever did to finish if it lost - either way, blocks until torn down.
+    [session kill];
+  } else {
+    // _activeSession is already nil, but a concurrent -kill (e.g. from DELETE /session) may still
+    // be mid-teardown - wait for it, so we don't launch a replacement app too early.
+    [self waitForActiveTeardownWithTimeout:FB_KILL_WAIT_TIMEOUT_SEC];
+  }
+  // Claimed here, not in +markSessionActive:, because the caller starts launching its application
+  // as soon as this returns. If the bounded wait expired with a teardown still running, that
+  // teardown has to be stale before the replacement app exists or it could terminate it. A
+  // teardown this call ran to completion is already finished, so invalidating it is a no-op.
+  @synchronized (FBSession.class) {
+    _sessionGeneration++;
+  }
+}
+
 + (void)markSessionActive:(FBSession *)session
 {
-  FBSession *previousSession;
-  @synchronized (FBSession.class) {
-    previousSession = _activeSession;
-  }
-  if (previousSession) {
-    [previousSession kill];
-  }
+  [self killActiveSessionAndWaitForTeardown];
   @synchronized (FBSession.class) {
     _activeSession = session;
+  }
+}
+
+// NO once a newer session has been marked active, meaning the caller's teardown is stale and must
+// not touch process-wide state that the newer session now owns.
++ (BOOL)isSessionGenerationCurrent:(NSUInteger)generation
+{
+  @synchronized (FBSession.class) {
+    return generation == _sessionGeneration;
   }
 }
 
@@ -182,38 +253,70 @@ static FBSession *_activeSession = nil;
 
 - (void)kill
 {
+  // DELETE /session and session creation can now run concurrently, so a session already
+  // superseded by a newer one can still reach here via a stale reference. Check-and-clear must be
+  // atomic, else a belated -kill could null out the new session's pointer instead of its own.
+  // _activeTeardownCount is published in the same critical section (with the condition lock
+  // held): were it set only after clearing the pointer, a concurrent
+  // +killActiveSessionAndWaitForTeardown could observe a nil session with no teardown to wait
+  // for and start a replacement whose app the still-running teardown then terminates.
+  NSCondition *teardownCondition = self.class.teardownCondition;
   BOOL wasActive;
-  @synchronized (FBSession.class) {
-    wasActive = (nil != _activeSession);
+  NSUInteger generation;
+  [teardownCondition lock];
+  @synchronized (self.class) {
+    wasActive = (self == _activeSession);
+    // Captured here so the teardown steps below can tell whether a replacement session has been
+    // created in the meantime - see +isSessionGenerationCurrent:.
+    generation = _sessionGeneration;
+    if (wasActive) {
+      _activeSession = nil;
+      _activeTeardownCount++;
+    }
   }
+  [teardownCondition unlock];
   if (!wasActive) {
+    // Someone else is already tearing this session down - wait for that to finish (bounded), so
+    // we don't act as if it's gone (e.g. launch a new app) while its -terminate is still in flight.
+    [self.class waitForActiveTeardownWithTimeout:FB_KILL_WAIT_TIMEOUT_SEC];
     return;
   }
 
-  [self disableAlertsMonitor];
+  @try {
+    // Posted before teardown so pending HTTP requests for this session can stop waiting sooner.
+    [NSNotificationCenter.defaultCenter postNotificationName:FBSessionWasKilledNotification object:self];
 
-  FBScreenRecordingPromise *activeScreenRecording = FBScreenRecordingContainer.sharedInstance.screenRecordingPromise;
-  if (nil != activeScreenRecording) {
-    NSError *error;
-    if (![FBXCTestDaemonsProxy stopScreenRecordingWithUUID:activeScreenRecording.identifier error:&error]) {
-      [FBLogger logFmt:@"%@", error];
+    [self disableAlertsMonitor];
+
+    FBScreenRecordingPromise *activeScreenRecording = FBScreenRecordingContainer.sharedInstance.screenRecordingPromise;
+    if (nil != activeScreenRecording) {
+      NSError *error;
+      if (![FBXCTestDaemonsProxy stopScreenRecordingWithUUID:activeScreenRecording.identifier error:&error]) {
+        [FBLogger logFmt:@"%@", error];
+      }
+      // The stop above is by UUID and safe either way, but the container is process-wide:
+      // resetting it would drop a replacement session's promise instead.
+      if ([self.class isSessionGenerationCurrent:generation]) {
+        [FBScreenRecordingContainer.sharedInstance reset];
+      }
     }
-    [FBScreenRecordingContainer.sharedInstance reset];
-  }
 
-  if (nil != self.testedApplication
-      && FBConfiguration.sharedInstance.shouldTerminateApp
-      && self.testedApplication.running
-      && ![self.testedApplication fb_isSameAppAs:XCUIApplication.fb_systemApplication]) {
-    @try {
-      [self.testedApplication terminate];
-    } @catch (NSException *e) {
-      [FBLogger logFmt:@"%@", e.description];
+    if (nil != self.testedApplication
+        && FBConfiguration.sharedInstance.shouldTerminateApp
+        && self.testedApplication.running
+        && ![self fb_isTestedApplicationSameAsSystemAppWithTimeout:FB_IS_SYSTEM_APP_CHECK_TIMEOUT_SEC]) {
+      // Blocks until the app is either actually terminated or durably given up on (never left
+      // pending) - see -fb_terminateTestedApplicationWithTimeout:generation: - so it's safe to
+      // report this teardown as finished as soon as this returns.
+      [self fb_terminateTestedApplicationWithTimeout:FB_APP_TERMINATE_TIMEOUT_SEC generation:generation];
     }
-  }
-
-  @synchronized (FBSession.class) {
-    _activeSession = nil;
+  } @finally {
+    [teardownCondition lock];
+    _activeTeardownCount--;
+    // Broadcast unconditionally: waiters re-check the count themselves, so a wake-up while
+    // another teardown is still running simply puts them back to waiting.
+    [teardownCondition broadcast];
+    [teardownCondition unlock];
   }
 }
 
@@ -307,6 +410,82 @@ static FBSession *_activeSession = nil;
   return nil != self.testedApplication && [bundleIdentifier isEqualToString:(NSString *)self.testedApplication.bundleID]
     ? self.testedApplication
     : [[XCUIApplication alloc] initWithBundleIdentifier:bundleIdentifier];
+}
+
+// Has no async variant and can block on the shared accessibility channel. Run off-thread and give
+// up after `timeout`, assuming the tested app IS the system app - safer, since it means skipping
+// termination rather than risking terminating springboard.
+- (BOOL)fb_isTestedApplicationSameAsSystemAppWithTimeout:(NSTimeInterval)timeout
+{
+  __block XCUIApplication *systemApp = nil;
+  __block NSException *caughtException = nil;
+  dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    // Undocumented private API; guard in case it hard-asserts off-main like -terminate does on
+    // some Xcode/iOS version - uncaught, that would crash the whole process.
+    @try {
+      systemApp = XCUIApplication.fb_systemApplication;
+    } @catch (NSException *e) {
+      caughtException = e;
+    }
+    dispatch_semaphore_signal(sem);
+  });
+  int64_t timeoutNs = (int64_t)(timeout * NSEC_PER_SEC);
+  if (0 != dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, timeoutNs)) || nil != caughtException) {
+    [FBLogger logFmt:@"Could not determine the system application within %@ seconds%@; assuming '%@' might be it and skipping its termination", @(timeout), nil == caughtException ? @"" : [NSString stringWithFormat:@" (%@)", caughtException.description], self.testedApplication.bundleID];
+    return YES;
+  }
+  return [self.testedApplication fb_isSameAppAs:systemApp];
+}
+
+// -terminate hard-asserts off-main, but -kill can now run on a background queue. Dispatching to
+// main and waiting indefinitely could hang just as long as main is stuck, so give up after
+// `timeout` - but a "given up on" call must never still terminate whatever's running by the time
+// main gets to it (e.g. a replacement session's app), so cancellation and the actual terminate
+// call share a lock: whichever gets there first - the dispatched block, or the timeout - wins.
+- (void)fb_terminateTestedApplicationWithTimeout:(NSTimeInterval)timeout generation:(NSUInteger)generation
+{
+  XCUIApplication *application = self.testedApplication;
+  if (NSThread.isMainThread) {
+    // Already on main (e.g. a session replacement via POST /session, whose handler runs on the
+    // main queue): dispatching to main and blocking on the semaphore below would deadlock until
+    // the timeout and then skip the termination entirely. Terminate inline instead.
+    if (![self.class isSessionGenerationCurrent:generation]) {
+      [FBLogger logFmt:@"Skipping termination of '%@': a newer session is already active", application.bundleID];
+      return;
+    }
+    @try {
+      [application terminate];
+    } @catch (NSException *e) {
+      [FBLogger logFmt:@"%@", e.description];
+    }
+    return;
+  }
+  NSObject *lock = [NSObject new];
+  __block BOOL isAllowedToTerminate = YES;
+  dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+  dispatch_async(dispatch_get_main_queue(), ^{
+    @synchronized (lock) {
+      // Re-checked here rather than before dispatching: this block can sit on a busy main queue
+      // longer than the teardown wait allows, and a replacement created in that window usually
+      // runs the same bundle ID - terminating "the old app" would kill the new one.
+      if (isAllowedToTerminate && [self.class isSessionGenerationCurrent:generation]) {
+        @try {
+          [application terminate];
+        } @catch (NSException *e) {
+          [FBLogger logFmt:@"%@", e.description];
+        }
+      }
+    }
+    dispatch_semaphore_signal(sem);
+  });
+  int64_t timeoutNs = (int64_t)(timeout * NSEC_PER_SEC);
+  if (0 != dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, timeoutNs))) {
+    @synchronized (lock) {
+      isAllowedToTerminate = NO;
+    }
+    [FBLogger logFmt:@"Could not terminate '%@' within %@ seconds; giving up on it rather than risk terminating a possible replacement session's app later", application.bundleID, @(timeout)];
+  }
 }
 
 @end
