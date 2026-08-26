@@ -13,6 +13,7 @@ export interface WDASettings {
   keyboardAutocorrection?: boolean;
   keyboardPrediction?: boolean;
   customSnapshotTimeout?: number;
+  accessibilityDeadline?: number;
   snapshotMaxDepth?: number;
   snapshotMaxChildren?: number;
   useFirstMatch?: boolean;
@@ -50,6 +51,7 @@ export interface WDACapabilities {
   forceSimulatorSoftwareKeyboardPresence?: boolean;
   defaultAlertAction?: 'accept' | 'dismiss';
   appLaunchStateTimeoutSec?: number;
+  accessibilityDeadline?: number;
 }
 
 export interface WebDriverAgentArgs {

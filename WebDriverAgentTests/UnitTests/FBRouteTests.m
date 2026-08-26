@@ -357,6 +357,10 @@ static atomic_int gFramingProbeHits;
   [self.server get:@"/framing/ping" withBlock:^(RouteRequest *request, RouteResponse *response) {
     [response respondWithString:@"pong"];
   }];
+  [self.server get:@"/session/:sessionID/framing/probe" withBlock:^(RouteRequest *request, RouteResponse *response) {
+    atomic_fetch_add(&gFramingProbeHits, 1);
+    [response respondWithString:@"session-probe-ok"];
+  }];
   self.server.port = 0;
   NSError *error;
   XCTAssertTrue([self.server start:&error], @"%@", error);
@@ -449,6 +453,68 @@ static atomic_int gFramingProbeHits;
   XCTAssertTrue([response containsString:@"400"], @"%@", response);
   XCTAssertTrue(didClose);
   XCTAssertEqual(atomic_load(&gFramingProbeHits), 0);
+}
+
+- (void)testDuplicateContentLengthIsRejected
+{
+  // RFC 7230 (3.3.3): repeated framing fields are unrecoverable. Last-wins assignment would let
+  // the second value drive parsing while an intermediary used the first - a smuggling primitive.
+  NSString *payload = @"POST /framing/probe HTTP/1.1\r\nContent-Length: 5\r\nContent-Length: 0\r\n\r\nhello";
+  BOOL didClose;
+  NSString *response = [self responseForRawPayload:(NSData * _Nonnull)[payload dataUsingEncoding:NSUTF8StringEncoding]
+                                            timeout:5.0
+                                           didClose:&didClose];
+  XCTAssertTrue([response containsString:@"400"], @"%@", response);
+  XCTAssertTrue(didClose);
+  XCTAssertEqual(atomic_load(&gFramingProbeHits), 0);
+}
+
+- (void)testEmptyTransferEncodingIsRejected
+{
+  // "chunked" followed by an empty value: with last-wins assignment plus a non-empty presence
+  // check, the empty value used to make the header look absent, so the chunked body was parsed
+  // as a zero-length body and its bytes re-read as smuggled requests.
+  NSString *payload = @"POST /framing/probe HTTP/1.1\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: \r\n\r\n0\r\n\r\n";
+  BOOL didClose;
+  NSString *response = [self responseForRawPayload:(NSData * _Nonnull)[payload dataUsingEncoding:NSUTF8StringEncoding]
+                                            timeout:5.0
+                                           didClose:&didClose];
+  XCTAssertTrue([response containsString:@"400"] || [response containsString:@"501"], @"%@", response);
+  XCTAssertTrue(didClose);
+  XCTAssertEqual(atomic_load(&gFramingProbeHits), 0);
+}
+
+- (void)testRequestForAlreadyAbandonedSessionIsRejectedImmediately
+{
+  // A request parsed *after* DELETE /session tore the session down would never receive an
+  // abandonment notification of its own, so before this was tracked it queued on the route
+  // queue - potentially forever, if that queue is wedged behind the stuck request that made
+  // the client delete the session in the first place.
+  RouteResponse *abandonedResponse = [RouteResponse new];
+  [abandonedResponse respondWithString:@"session-was-deleted"];
+  [self.server abandonPendingRequestsForSessionID:@"dead-session" withResponse:abandonedResponse];
+
+  BOOL didClose;
+  NSString *response = [self responseForRawPayload:(NSData * _Nonnull)[@"GET /session/dead-session/framing/probe HTTP/1.1\r\n\r\n" dataUsingEncoding:NSUTF8StringEncoding]
+                                            timeout:5.0
+                                           didClose:&didClose];
+  XCTAssertTrue([response containsString:@"session-was-deleted"], @"%@", response);
+  XCTAssertEqual(atomic_load(&gFramingProbeHits), 0, @"the route must not run for a deleted session");
+}
+
+- (void)testRequestForLiveSessionIsStillServed
+{
+  // The rejection above must be scoped to the abandoned identifier only.
+  RouteResponse *abandonedResponse = [RouteResponse new];
+  [abandonedResponse respondWithString:@"session-was-deleted"];
+  [self.server abandonPendingRequestsForSessionID:@"dead-session" withResponse:abandonedResponse];
+
+  BOOL didClose;
+  NSString *response = [self responseForRawPayload:(NSData * _Nonnull)[@"GET /session/live-session/framing/probe HTTP/1.1\r\n\r\n" dataUsingEncoding:NSUTF8StringEncoding]
+                                            timeout:5.0
+                                           didClose:&didClose];
+  XCTAssertTrue([response containsString:@"session-probe-ok"], @"%@", response);
+  XCTAssertEqual(atomic_load(&gFramingProbeHits), 1);
 }
 
 - (void)testPipelinedRequestsAreServedInOrder

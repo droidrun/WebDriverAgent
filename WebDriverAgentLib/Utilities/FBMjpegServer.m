@@ -173,7 +173,9 @@ static NSUInteger FBNormalizedMjpegFramerate(NSUInteger framerate)
         continue;
       }
       [self.pendingFrameCounts setObject:@(pendingFrames + 1) forKey:client];
-      [self.socket writeData:chunk toClient:client completion:^{
+      [self.socket writeData:chunk toClient:client completion:^(BOOL didSucceed) {
+        // Success or failure, this frame is no longer outstanding - a failed send means the
+        // connection is going away and -didClientDisconnect: will drop its state entirely.
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (nil == strongSelf) {
           return;

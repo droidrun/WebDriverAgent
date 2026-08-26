@@ -131,6 +131,14 @@ static BOOL FBParseContentLength(NSString *value, NSUInteger *outLength)
 // standalone or not (except DELETE /session itself - see -dispatchMethod:). See
 // -abandonPendingRequestsForSessionID:. Guarded by @synchronized(self.pendingSessionRequests).
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableSet<FBPendingRequest *> *> *pendingSessionRequests;
+// Sessions that -abandonPendingRequestsForSessionID: has already torn down, mapped to the
+// response it abandoned them with, so a request for one parsed *after* that point is answered
+// immediately instead of queueing behind a possibly-wedged route queue that will never produce
+// an abandonment notification for it. Session identifiers are UUIDs and never reused, so a
+// recorded entry can never reject a live session. Insertion-ordered by `abandonedSessionOrder`
+// and capped at FBMaxRecordedAbandonedSessions. Guarded by @synchronized(self.pendingSessionRequests).
+@property (nonatomic, strong) NSMutableDictionary<NSString *, RouteResponse *> *abandonedSessionResponses;
+@property (nonatomic, strong) NSMutableArray<NSString *> *abandonedSessionOrder;
 // When each connection started waiting for its current request to complete: set on connect and
 // whenever bytes of a new request begin arriving, cleared once a complete request is dispatched.
 // The reaper below closes connections whose entry outlives FBIncompleteRequestTimeout, so peers
@@ -147,6 +155,11 @@ static BOOL FBParseContentLength(NSString *value, NSUInteger *outLength)
 static const NSTimeInterval FBIncompleteRequestTimeout = 30.0;
 static const int64_t FBStaleConnectionSweepIntervalSec = 10;
 
+// How many torn-down sessions to remember for late-arriving requests. Only one session is ever
+// active, so this only has to outlive the in-flight requests of the sessions immediately before
+// the current one; anything older would be answered "no such driver" by the route itself anyway.
+static const NSUInteger FBMaxRecordedAbandonedSessions = 8;
+
 @implementation FBHTTPServer
 
 - (instancetype)init
@@ -162,6 +175,8 @@ static const int64_t FBStaleConnectionSweepIntervalSec = 10;
     _connectionsAwaitingResponse = [NSMutableSet set];
     _standaloneWaiters = [NSMutableDictionary dictionary];
     _pendingSessionRequests = [NSMutableDictionary dictionary];
+    _abandonedSessionResponses = [NSMutableDictionary dictionary];
+    _abandonedSessionOrder = [NSMutableArray array];
     _incompleteRequestStarts = [NSMapTable mapTableWithKeyOptions:(NSPointerFunctionsOptions)(NSMapTableObjectPointerPersonality | NSMapTableStrongMemory)
                                                      valueOptions:(NSPointerFunctionsOptions)NSMapTableStrongMemory];
   }
@@ -471,15 +486,25 @@ static const int64_t FBStaleConnectionSweepIntervalSec = 10;
       }
       NSString *value = [[line substringFromIndex:colonRange.location + 1]
                           stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-      requestHeaders[name.lowercaseString] = value;
+      NSString *normalizedName = name.lowercaseString;
+      // RFC 7230 (3.3.3): a message with conflicting or repeated framing fields MUST be treated
+      // as unrecoverable. Last-wins assignment would let "Transfer-Encoding: chunked" followed
+      // by an empty "Transfer-Encoding:" slip past the presence check below, and would let the
+      // last of several Content-Length values drive parsing - both classic request-smuggling
+      // primitives whenever an intermediary resolves the duplicate differently than we would.
+      if (([normalizedName isEqualToString:@"content-length"] || [normalizedName isEqualToString:@"transfer-encoding"])
+          && nil != requestHeaders[normalizedName]) {
+        [self respondBadRequestToClient:client];
+        return;
+      }
+      requestHeaders[normalizedName] = value;
     }
 
     NSString *transferEncoding = requestHeaders[@"transfer-encoding"];
-    if (transferEncoding.length > 0) {
-      // No transfer decoder is implemented at all, so any encoding (chunked or otherwise -
-      // including a value only introduced by a duplicate header overwriting "chunked" above)
-      // is rejected rather than risking the body being misread as empty and desyncing the rest
-      // of the connection's request stream.
+    if (nil != transferEncoding) {
+      // No transfer decoder is implemented at all, so the header's mere presence is rejected -
+      // including an empty value, which is not a valid encoding list and would otherwise let
+      // the body be misread as empty, desyncing the rest of the connection's request stream.
       RouteResponse *notImplemented = [RouteResponse new];
       id<FBResponsePayload> notImplementedPayload = FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:@"Transfer-Encoding is not supported"
                                                                                                                   traceback:nil]);
@@ -614,7 +639,11 @@ static const int64_t FBStaleConnectionSweepIntervalSec = 10;
     FBPendingRequest *pendingRequest = nil;
     if (nil != sessionID) {
       pendingRequest = [[FBPendingRequest alloc] initWithClient:client];
-      [self trackPendingRequest:pendingRequest forSessionID:sessionID];
+      RouteResponse *abandonedResponse = [self trackPendingRequest:pendingRequest forSessionID:sessionID];
+      if (nil != abandonedResponse) {
+        [self writeResponse:abandonedResponse toClient:client];
+        return;
+      }
     }
 
     void (^invoke)(void) = ^{
@@ -645,15 +674,25 @@ static const int64_t FBStaleConnectionSweepIntervalSec = 10;
 
 #pragma mark - Session-scoped request cancellation
 
-- (void)trackPendingRequest:(FBPendingRequest *)pendingRequest forSessionID:(NSString *)sessionID
+// Returns nil once `pendingRequest` is tracked. If the session was already abandoned, nothing is
+// tracked and the response it was abandoned with is returned instead - the caller must deliver
+// that and skip dispatching, since no future abandonment notification would ever reach this
+// request. Checked under the same lock that -abandonPendingRequestsForSessionID: takes, so a
+// request can never slip in between the abandonment and the record of it.
+- (nullable RouteResponse *)trackPendingRequest:(FBPendingRequest *)pendingRequest forSessionID:(NSString *)sessionID
 {
   @synchronized (self.pendingSessionRequests) {
+    RouteResponse *abandonedResponse = self.abandonedSessionResponses[sessionID];
+    if (nil != abandonedResponse) {
+      return abandonedResponse;
+    }
     NSMutableSet<FBPendingRequest *> *pendingRequests = self.pendingSessionRequests[sessionID];
     if (nil == pendingRequests) {
       pendingRequests = [NSMutableSet set];
       self.pendingSessionRequests[sessionID] = pendingRequests;
     }
     [pendingRequests addObject:pendingRequest];
+    return nil;
   }
 }
 
@@ -680,6 +719,16 @@ static const int64_t FBStaleConnectionSweepIntervalSec = 10;
   @synchronized (self.pendingSessionRequests) {
     pendingRequests = [self.pendingSessionRequests[sessionID] copy];
     [self.pendingSessionRequests removeObjectForKey:sessionID];
+    // Recorded before the lock is dropped, so any request admitted from here on is rejected by
+    // -trackPendingRequest:forSessionID: rather than queueing for a session that is already gone.
+    if (nil == self.abandonedSessionResponses[sessionID]) {
+      [self.abandonedSessionOrder addObject:sessionID];
+      self.abandonedSessionResponses[sessionID] = response;
+      while (self.abandonedSessionOrder.count > FBMaxRecordedAbandonedSessions) {
+        [self.abandonedSessionResponses removeObjectForKey:self.abandonedSessionOrder.firstObject];
+        [self.abandonedSessionOrder removeObjectAtIndex:0];
+      }
+    }
   }
   for (FBPendingRequest *pendingRequest in pendingRequests) {
     [self writeResponse:response toClient:pendingRequest.client];
@@ -700,7 +749,11 @@ static const int64_t FBStaleConnectionSweepIntervalSec = 10;
   NSString *key = [NSString stringWithFormat:@"%@ %@", method, pathAndQuery];
   FBPendingRequest *waiter = [[FBPendingRequest alloc] initWithClient:client];
   if (nil != sessionID) {
-    [self trackPendingRequest:waiter forSessionID:sessionID];
+    RouteResponse *abandonedResponse = [self trackPendingRequest:waiter forSessionID:sessionID];
+    if (nil != abandonedResponse) {
+      [self writeResponse:abandonedResponse toClient:client];
+      return;
+    }
   }
 
   BOOL isInFlight = NO;
@@ -766,7 +819,7 @@ static const int64_t FBStaleConnectionSweepIntervalSec = 10;
 
   if (shouldClose) {
     __weak typeof(self) weakSelf = self;
-    [self.socket writeData:payload toClient:client completion:^{
+    [self.socket writeData:payload toClient:client completion:^(BOOL didSucceed) {
       [weakSelf closeClient:client];
     }];
   } else {
@@ -777,9 +830,17 @@ static const int64_t FBStaleConnectionSweepIntervalSec = 10;
     // Network.framework. If the connection dies mid-send the completion still fires and
     // -processBufferForClient: simply finds no buffer left.
     __weak typeof(self) weakSelf = self;
-    [self.socket writeData:payload toClient:client completion:^{
+    [self.socket writeData:payload toClient:client completion:^(BOOL didSucceed) {
       __strong typeof(weakSelf) strongSelf = weakSelf;
       if (nil == strongSelf) {
+        return;
+      }
+      if (!didSucceed) {
+        // The response never reached the peer, so the connection is already unusable. Running
+        // its next pipelined request - possibly a mutating one - would change device state for
+        // a client that can no longer be answered; drop the connection and its buffer instead.
+        [FBLogger log:@"Failed to write a response; dropping the connection and its pending requests"];
+        [strongSelf closeClient:client];
         return;
       }
       @synchronized (strongSelf.connectionBuffers) {
