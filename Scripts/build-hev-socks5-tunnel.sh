@@ -26,9 +26,18 @@ if [ ! -f "$SUBMODULE_DIR/src/hev-main.h" ]; then
     exit 1
 fi
 
-SUBMODULE_SHA=$(git -C "$SUBMODULE_DIR" rev-parse HEAD)
+# The npm tarball ships the engine sources without any Git metadata, so the submodule SHA is
+# only available in a Git checkout. Fall back to hashing the source tree there, which keys the
+# stamp on exactly what is about to be compiled either way.
+if SUBMODULE_SHA=$(git -C "$SUBMODULE_DIR" rev-parse HEAD 2>/dev/null); then
+    SOURCE_ID="$SUBMODULE_SHA"
+else
+    SOURCE_ID=$(find "$SUBMODULE_DIR/src" -type f -exec shasum -a 256 {} + \
+                | sort | shasum -a 256 | cut -d' ' -f1)
+    SUBMODULE_SHA="tree-$SOURCE_ID"
+fi
 SCRIPT_SHA=$(shasum -a 256 "$0" | cut -d' ' -f1)
-STAMP="${SUBMODULE_SHA}-${SCRIPT_SHA}-${MIN_IOS}"
+STAMP="${SOURCE_ID}-${SCRIPT_SHA}-${MIN_IOS}"
 
 if [ "${1:-}" != "--force" ] && [ -d "$OUTPUT" ] && [ -f "$STAMP_FILE" ] \
     && [ "$(cat "$STAMP_FILE")" = "$STAMP" ]; then

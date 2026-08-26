@@ -13,7 +13,12 @@ on:
       - 'PrivateHeaders/**'
       - 'Configurations/**'
       - 'WebDriverAgent.xcodeproj/**'
+      - 'WebDriverAgentTunnel/**'
+      - 'ThirdParty/**'
+      - '.gitmodules'
       - 'Scripts/build.sh'
+      - 'Scripts/build-hev-socks5-tunnel.sh'
+      - 'Scripts/embed-tunnel-extension.sh'
       - 'Fastlane/**'
       - 'Gemfile*'
       - '.github/workflows/wda-tests.yml'
@@ -132,6 +137,10 @@ jobs:
         config: ${{ fromJSON(needs.build_matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The tunnel target needs ThirdParty/hev-socks5-tunnel (and its nested
+          # submodules) present, otherwise Scripts/build.sh fails before Xcode runs.
+          submodules: recursive
       - uses: ./.github/actions/xcode-setup
         with:
           xcode_version: ${{ matrix.config.xcode_version }}
@@ -161,6 +170,10 @@ jobs:
         config: ${{ fromJSON(needs.analyze_matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The tunnel target needs ThirdParty/hev-socks5-tunnel (and its nested
+          # submodules) present, otherwise Scripts/build.sh fails before Xcode runs.
+          submodules: recursive
       - uses: ./.github/actions/xcode-setup
         with:
           xcode_version: ${{ matrix.config.xcode_version }}
@@ -188,6 +201,10 @@ jobs:
         config: ${{ fromJSON(needs.unit_test_matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The tunnel target needs ThirdParty/hev-socks5-tunnel (and its nested
+          # submodules) present, otherwise Scripts/build.sh fails before Xcode runs.
+          submodules: recursive
       - uses: ./.github/actions/xcode-setup
         with:
           xcode_version: ${{ matrix.config.xcode_version }}
@@ -213,6 +230,10 @@ jobs:
         config: ${{ fromJSON(needs.integration_test_matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The tunnel target needs ThirdParty/hev-socks5-tunnel (and its nested
+          # submodules) present, otherwise Scripts/build.sh fails before Xcode runs.
+          submodules: recursive
       - uses: ./.github/actions/xcode-setup
         with:
           xcode_version: ${{ matrix.config.xcode_version }}
