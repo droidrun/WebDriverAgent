@@ -60,8 +60,150 @@ static NSString *FBTunnelResolveHost(NSString *host, BOOL *isIPv6)
   return ipv4 ?: ipv6;
 }
 
+/// How long the pre-flight SOCKS5 handshake may take before the proxy counts as unreachable.
+static const NSTimeInterval FBTunnelProbeTimeout = 8.0;
+/// Grace period for the engine to fail its own initialization before startup is declared good.
+static const NSTimeInterval FBTunnelEngineSettleTimeout = 0.75;
+
+static BOOL FBTunnelSetSocketTimeout(int fd, NSTimeInterval seconds)
+{
+  struct timeval tv;
+  tv.tv_sec = (time_t)seconds;
+  tv.tv_usec = (suseconds_t)((seconds - (NSTimeInterval)tv.tv_sec) * 1000000);
+  return 0 == setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv))
+      && 0 == setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+}
+
+static BOOL FBTunnelReadFully(int fd, uint8_t *buffer, size_t length)
+{
+  size_t got = 0;
+  while (got < length) {
+    ssize_t n = recv(fd, buffer + got, length - got, 0);
+    if (n <= 0) {
+      return NO;
+    }
+    got += (size_t)n;
+  }
+  return YES;
+}
+
+/**
+ Performs a SOCKS5 greeting (and username/password sub-negotiation when credentials are
+ configured) against the proxy, then closes the connection.
+
+ hev only dials the proxy once tunneled traffic creates a session, so without this the provider
+ would report success for a proxy that is unreachable or rejects the credentials, and every
+ packet routed into the tunnel would be silently blackholed. Runs before the tunnel's network
+ settings are applied, so it cannot be captured by the tunnel it is validating.
+ */
+static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, uint16_t port,
+                                              NSString *_Nullable user, NSString *_Nullable pass)
+{
+  int fd = socket(isIPv6 ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) {
+    return FBTunnelError(@"Cannot create a socket to probe the SOCKS5 proxy");
+  }
+  FBTunnelSetSocketTimeout(fd, FBTunnelProbeTimeout);
+
+  int connected = -1;
+  if (isIPv6) {
+    struct sockaddr_in6 addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin6_family = AF_INET6;
+    addr.sin6_port = htons(port);
+    if (1 != inet_pton(AF_INET6, proxyIP.UTF8String, &addr.sin6_addr)) {
+      close(fd);
+      return FBTunnelError(@"Cannot parse the resolved SOCKS5 proxy address");
+    }
+    connected = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+  } else {
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    if (1 != inet_pton(AF_INET, proxyIP.UTF8String, &addr.sin_addr)) {
+      close(fd);
+      return FBTunnelError(@"Cannot parse the resolved SOCKS5 proxy address");
+    }
+    connected = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+  }
+  if (0 != connected) {
+    int err = errno;
+    close(fd);
+    return FBTunnelError([NSString stringWithFormat:
+                          @"Cannot reach the SOCKS5 proxy at %@:%u: %s", proxyIP, port, strerror(err)]);
+  }
+
+  BOOL hasCredentials = user.length > 0;
+  uint8_t greeting[4];
+  size_t greetingLength = 0;
+  greeting[greetingLength++] = 0x05;
+  greeting[greetingLength++] = hasCredentials ? 2 : 1;
+  greeting[greetingLength++] = 0x00;                       // no authentication
+  if (hasCredentials) {
+    greeting[greetingLength++] = 0x02;                     // username/password
+  }
+  if (send(fd, greeting, greetingLength, 0) != (ssize_t)greetingLength) {
+    close(fd);
+    return FBTunnelError(@"The SOCKS5 proxy closed the connection during the greeting");
+  }
+
+  uint8_t choice[2] = {0};
+  if (!FBTunnelReadFully(fd, choice, sizeof(choice))) {
+    close(fd);
+    return FBTunnelError(@"The SOCKS5 proxy did not answer the greeting");
+  }
+  if (0x05 != choice[0]) {
+    close(fd);
+    return FBTunnelError([NSString stringWithFormat:
+                          @"The server at %@:%u is not a SOCKS5 proxy", proxyIP, port]);
+  }
+  if (0xFF == choice[1]) {
+    close(fd);
+    return FBTunnelError(hasCredentials
+                         ? @"The SOCKS5 proxy rejected both supported authentication methods"
+                         : @"The SOCKS5 proxy requires authentication but no credentials were configured");
+  }
+  if (0x02 == choice[1]) {
+    NSData *userData = [user dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *passData = [(pass ?: @"") dataUsingEncoding:NSUTF8StringEncoding];
+    if (userData.length > 255 || passData.length > 255) {
+      close(fd);
+      return FBTunnelError(@"The SOCKS5 credentials exceed the 255 byte protocol limit");
+    }
+    NSMutableData *auth = [NSMutableData dataWithBytes:(uint8_t[]){0x01} length:1];
+    uint8_t userLength = (uint8_t)userData.length;
+    [auth appendBytes:&userLength length:1];
+    [auth appendData:userData];
+    uint8_t passLength = (uint8_t)passData.length;
+    [auth appendBytes:&passLength length:1];
+    [auth appendData:passData];
+    if (send(fd, auth.bytes, auth.length, 0) != (ssize_t)auth.length) {
+      close(fd);
+      return FBTunnelError(@"The SOCKS5 proxy closed the connection during authentication");
+    }
+    uint8_t authReply[2] = {0};
+    if (!FBTunnelReadFully(fd, authReply, sizeof(authReply))) {
+      close(fd);
+      return FBTunnelError(@"The SOCKS5 proxy did not answer the authentication request");
+    }
+    if (0x00 != authReply[1]) {
+      close(fd);
+      return FBTunnelError(@"The SOCKS5 proxy rejected the configured credentials");
+    }
+  } else if (0x00 != choice[1]) {
+    close(fd);
+    return FBTunnelError([NSString stringWithFormat:
+                          @"The SOCKS5 proxy selected unsupported authentication method 0x%02x", choice[1]]);
+  }
+  close(fd);
+  return nil;
+}
+
 @interface FBTunnelPacketProvider ()
 @property (nonatomic, nullable) FBTunnelHevRunner *runner;
+/** Set once a stop was requested, so the engine's exit is not mistaken for a crash. */
+@property (atomic) BOOL isStopping;
 @end
 
 @implementation FBTunnelPacketProvider
@@ -89,6 +231,16 @@ static NSString *FBTunnelResolveHost(NSString *host, BOOL *isIPv6)
   }
   NSLog(@"WebDriverAgentTunnel: starting tunnel through %@:%@ (resolved %@, remoteDNS=%d)",
         host, port, proxyIP, remoteDNS);
+
+  // Fail before any routes are installed, so an unreachable proxy or bad credentials surface as
+  // a start error instead of a "connected" tunnel that drops every packet.
+  NSError *probeError = FBTunnelProbeSocks5(proxyIP, proxyIsIPv6, (uint16_t)port.unsignedIntValue,
+                                            config[FBSocks5KeyUser], config[FBSocks5KeyPass]);
+  if (nil != probeError) {
+    NSLog(@"WebDriverAgentTunnel: proxy pre-flight failed: %@", probeError.localizedDescription);
+    completionHandler(probeError);
+    return;
+  }
 
   NEPacketTunnelNetworkSettings *settings =
     [[NEPacketTunnelNetworkSettings alloc] initWithTunnelRemoteAddress:proxyIP];
@@ -133,8 +285,33 @@ static NSString *FBTunnelResolveHost(NSString *host, BOOL *isIPv6)
     NSMutableDictionary *engineConfig = [config mutableCopy];
     engineConfig[FBSocks5KeyHost] = proxyIP;
     NSString *yaml = FBSocks5HevConfigFromProviderConfiguration(engineConfig);
-    strongSelf.runner = [[FBTunnelHevRunner alloc] init];
-    [strongSelf.runner startWithConfigYAML:yaml tunFd:tunFd];
+    FBTunnelHevRunner *runner = [[FBTunnelHevRunner alloc] init];
+    strongSelf.runner = runner;
+    // An engine that fails to initialize returns from its main almost immediately. Report that
+    // as a start failure rather than letting NetworkExtension reach NEVPNStatusConnected; once
+    // startup has been acknowledged, an unexpected exit tears the tunnel down instead of leaving
+    // it advertised but blackholed.
+    dispatch_semaphore_t settled = dispatch_semaphore_create(0);
+    __block BOOL startupAcknowledged = NO;
+    [runner startWithConfigYAML:yaml tunFd:tunFd exitHandler:^(int exitCode) {
+      __strong typeof(weakSelf) exitSelf = weakSelf;
+      dispatch_semaphore_signal(settled);
+      if (!startupAcknowledged || nil == exitSelf || exitSelf.isStopping) {
+        return;
+      }
+      NSLog(@"WebDriverAgentTunnel: engine exited unexpectedly (code %d); cancelling the tunnel", exitCode);
+      [exitSelf cancelTunnelWithError:
+       FBTunnelError([NSString stringWithFormat:@"The SOCKS5 engine exited unexpectedly with code %d", exitCode])];
+    }];
+    BOOL exitedEarly = 0 == dispatch_semaphore_wait(settled,
+                                                    dispatch_time(DISPATCH_TIME_NOW,
+                                                                  (int64_t)(FBTunnelEngineSettleTimeout * NSEC_PER_SEC)));
+    if (exitedEarly || !runner.isRunning) {
+      strongSelf.runner = nil;
+      completionHandler(FBTunnelError(@"The SOCKS5 engine failed to start; check the proxy configuration"));
+      return;
+    }
+    startupAcknowledged = YES;
     completionHandler(nil);
   }];
 }
@@ -143,6 +320,7 @@ static NSString *FBTunnelResolveHost(NSString *host, BOOL *isIPv6)
            completionHandler:(void (^)(void))completionHandler
 {
   NSLog(@"WebDriverAgentTunnel: stopping tunnel (reason %ld)", (long)reason);
+  self.isStopping = YES;
   [self.runner stopAndWait:5.0];
   self.runner = nil;
   completionHandler();

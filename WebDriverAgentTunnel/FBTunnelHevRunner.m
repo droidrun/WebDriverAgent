@@ -17,7 +17,9 @@
 
 @implementation FBTunnelHevRunner
 
-- (void)startWithConfigYAML:(NSString *)configYAML tunFd:(int)tunFd
+- (void)startWithConfigYAML:(NSString *)configYAML
+                      tunFd:(int)tunFd
+                exitHandler:(nullable void (^)(int exitCode))exitHandler
 {
   if (self.isRunning) {
     return;
@@ -33,6 +35,12 @@
     NSLog(@"WebDriverAgentTunnel: hev-socks5-tunnel exited with code %d", code);
     weakSelf.isRunning = NO;
     dispatch_semaphore_signal(exitSemaphore);
+    // Reported even for a clean stop; the provider tells the two apart by whether it asked
+    // the engine to quit. An engine that exits on its own leaves the tunnel blackholed, so
+    // the provider must hear about it rather than keep advertising a working tunnel.
+    if (nil != exitHandler) {
+      exitHandler(code);
+    }
   }];
   thread.name = @"hev-socks5-tunnel";
   thread.qualityOfService = NSQualityOfServiceUserInitiated;

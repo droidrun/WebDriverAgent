@@ -26,7 +26,9 @@ NS_ASSUME_NONNULL_BEGIN
  @param configYAML the hev-socks5-tunnel YAML config
  @param tunFd the utun file descriptor the engine reads/writes packets on
  */
-- (void)startWithConfigYAML:(NSString *)configYAML tunFd:(int)tunFd;
+- (void)startWithConfigYAML:(NSString *)configYAML
+                      tunFd:(int)tunFd
+                exitHandler:(nullable void (^)(int exitCode))exitHandler;
 
 /**
  Asks the engine to quit and waits for the engine thread to exit.

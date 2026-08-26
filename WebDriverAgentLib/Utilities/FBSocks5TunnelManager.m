@@ -100,10 +100,32 @@ static uint64_t FBSocks5NowMs(void)
   return clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) / NSEC_PER_MSEC;
 }
 
+/// Queue-specific marker used to detect that the caller already holds the lifecycle queue.
+static const void *FBSocks5LifecycleQueueKey = &FBSocks5LifecycleQueueKey;
+
+/**
+ How long an individual wait may block: whatever is left of the caller's whole-flow deadline,
+ never more than that stage's own cap. `deadline` is nil for the flows that do not carry one
+ (disconnect, stats), which then just get the cap. A non-positive result means the caller's
+ budget is exhausted and the stage must not start at all.
+ */
+static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTimeInterval cap)
+{
+  return nil == deadline ? cap : MIN(cap, deadline.timeIntervalSinceNow);
+}
+
 @interface FBSocks5TunnelManager ()
 @property (nonatomic, nullable) NETunnelProviderManager *activeManager;
 /** Monotonic ms timestamp of the last consent tap dispatch; guards the re-attempt cooldown. */
 @property (nonatomic) uint64_t lastConsentTapMs;
+/**
+ Serializes the whole tunnel lifecycle. The socks5 routes are marked onControlQueue, and
+ FBWebServer only funnels the non-control ones, so requests arriving over different HTTP
+ connections reach this singleton concurrently on their own connection queues. Without this
+ queue a disconnect could return while an in-flight connect goes on to start the tunnel, and
+ two connects could race different proxy configurations through stop/save/reload/start.
+ */
+@property (nonatomic, strong) dispatch_queue_t lifecycleQueue;
 @end
 
 @implementation FBSocks5TunnelManager
@@ -118,6 +140,28 @@ static uint64_t FBSocks5NowMs(void)
   return instance;
 }
 
+- (instancetype)init
+{
+  self = [super init];
+  if (nil != self) {
+    _lifecycleQueue = dispatch_queue_create("com.facebook.WebDriverAgent.socks5-lifecycle",
+                                            DISPATCH_QUEUE_SERIAL);
+    dispatch_queue_set_specific(_lifecycleQueue, FBSocks5LifecycleQueueKey,
+                                (void *)FBSocks5LifecycleQueueKey, NULL);
+  }
+  return self;
+}
+
+/// Runs `block` with the lifecycle queue held, tolerating a caller that already holds it.
+- (void)performLocked:(NS_NOESCAPE dispatch_block_t)block
+{
+  if (NULL != dispatch_get_specific(FBSocks5LifecycleQueueKey)) {
+    block();
+    return;
+  }
+  dispatch_sync(self.lifecycleQueue, block);
+}
+
 #pragma mark - Helpers
 
 - (NSString *)providerBundleIdentifier
@@ -125,8 +169,15 @@ static uint64_t FBSocks5NowMs(void)
   return [NSBundle.mainBundle.bundleIdentifier stringByAppendingString:FBSocks5TunnelBundleSuffix];
 }
 
-- (BOOL)loadAllManagers:(NSArray<NETunnelProviderManager *> **)outManagers error:(NSError **)error
+- (BOOL)loadAllManagers:(NSArray<NETunnelProviderManager *> **)outManagers
+               deadline:(nullable NSDate *)deadline
+                  error:(NSError **)error
 {
+  NSTimeInterval budget = FBSocks5RemainingTimeout(deadline, FBSocks5PreferencesTimeout);
+  if (budget <= 0) {
+    return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
+                        @"Ran out of time before loading the VPN preferences");
+  }
   __block NSArray<NETunnelProviderManager *> *managers = nil;
   __block NSError *loadError = nil;
   __block BOOL done = NO;
@@ -135,7 +186,7 @@ static uint64_t FBSocks5NowMs(void)
     loadError = err;
     done = YES;
   }];
-  [[[[FBRunLoopSpinner new] timeout:FBSocks5PreferencesTimeout] interval:0.05] spinUntilTrue:^BOOL{
+  [[[[FBRunLoopSpinner new] timeout:budget] interval:0.05] spinUntilTrue:^BOOL{
     return done;
   }];
   if (!done || nil != loadError) {
@@ -162,9 +213,13 @@ static uint64_t FBSocks5NowMs(void)
   return nil;
 }
 
-- (BOOL)waitUntilStopped:(NETunnelProviderManager *)manager
+- (BOOL)waitUntilStopped:(NETunnelProviderManager *)manager deadline:(nullable NSDate *)deadline
 {
-  return [[[[FBRunLoopSpinner new] timeout:FBSocks5StopTimeout] interval:0.2] spinUntilTrue:^BOOL{
+  NSTimeInterval budget = FBSocks5RemainingTimeout(deadline, FBSocks5StopTimeout);
+  if (budget <= 0) {
+    return NO;
+  }
+  return [[[[FBRunLoopSpinner new] timeout:budget] interval:0.2] spinUntilTrue:^BOOL{
     NEVPNStatus status = manager.connection.status;
     return status == NEVPNStatusDisconnected || status == NEVPNStatusInvalid;
   }];
@@ -193,14 +248,42 @@ static uint64_t FBSocks5NowMs(void)
 //   3. Its outcome is therefore observed via state (has the alert gone / did the save
 //      complete?), never inferred from the dispatch succeeding - so the caller must keep
 //      re-attempting, paced by the cooldown below, instead of latching after one dispatch.
+//
+// The button is matched inside the VPN alert rather than app-wide. An unscoped
+// system.buttons[@"Allow"] query would happily select any other SpringBoard prompt that
+// happens to be up when the save is requested - silently granting an unrelated permission -
+// so the alert is located first and identified structurally, the way FBBroadcastManager
+// anchors its own alert: exactly two buttons, one of them the consent label.
+- (nullable XCUIElement *)consentAlertButtonWithLabel:(NSString *)label
+{
+  XCUIApplication *system = XCUIApplication.fb_systemApplication;
+  for (XCUIElement *alert in system.alerts.allElementsBoundByIndex) {
+    if (!alert.exists) {
+      continue;
+    }
+    NSArray<XCUIElement *> *buttons = alert.buttons.allElementsBoundByIndex;
+    // "Would Like to Add VPN Configurations" is Allow / Don't Allow. Anything with a different
+    // button count is a different prompt, whatever its labels say.
+    if (buttons.count != 2) {
+      continue;
+    }
+    for (XCUIElement *button in buttons) {
+      if ([button.label isEqualToString:label] && button.exists) {
+        return button;
+      }
+    }
+  }
+  return nil;
+}
+
 - (BOOL)tapConsentButtonWithLabels:(NSArray<NSString *> *)labels
 {
   __block BOOL dispatched = NO;
   [FBWebServer performAutomationBlockOnMainQueue:^{
     XCUIApplication *system = XCUIApplication.fb_systemApplication;
     for (NSString *label in labels) {
-      XCUIElement *button = system.buttons[label];
-      if (!button.exists) {
+      XCUIElement *button = [self consentAlertButtonWithLabel:label];
+      if (nil == button) {
         continue;
       }
       CGRect frame = button.frame;
@@ -245,12 +328,31 @@ static uint64_t FBSocks5NowMs(void)
    consentButtonLabels:(nullable NSArray<NSString *> *)consentButtonLabels
                  error:(NSError **)error
 {
+  __block BOOL succeeded = NO;
+  __block NSError *localError = nil;
+  [self performLocked:^{
+    succeeded = [self lockedConnectWithURI:uri
+                                   timeout:timeout
+                       consentButtonLabels:consentButtonLabels
+                                     error:&localError];
+  }];
+  if (!succeeded && nil != error) {
+    *error = localError;
+  }
+  return succeeded;
+}
+
+- (BOOL)lockedConnectWithURI:(FBSocks5URI *)uri
+                     timeout:(NSTimeInterval)timeout
+         consentButtonLabels:(nullable NSArray<NSString *> *)consentButtonLabels
+                       error:(NSError **)error
+{
   NSTimeInterval budget = timeout > 0 ? timeout : FBSocks5DefaultConnectTimeout;
   NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:budget];
   NSArray<NSString *> *labels = consentButtonLabels.count > 0 ? consentButtonLabels : @[@"Allow"];
 
   NSArray<NETunnelProviderManager *> *managers;
-  if (![self loadAllManagers:&managers error:error]) {
+  if (![self loadAllManagers:&managers deadline:deadline error:error]) {
     return NO;
   }
   NETunnelProviderManager *manager = [self ownManagerIn:managers] ?: [[NETunnelProviderManager alloc] init];
@@ -260,7 +362,7 @@ static uint64_t FBSocks5NowMs(void)
   if (status == NEVPNStatusConnected || status == NEVPNStatusConnecting || status == NEVPNStatusReasserting) {
     [FBLogger log:@"socks5/connect: stopping the already running tunnel first"];
     [manager.connection stopVPNTunnel];
-    if (![self waitUntilStopped:manager]) {
+    if (![self waitUntilStopped:manager deadline:deadline]) {
       return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
                           @"Timed out stopping the previously running SOCKS5 tunnel");
     }
@@ -285,7 +387,9 @@ static uint64_t FBSocks5NowMs(void)
   // system, so 'we dispatched one' is not evidence that it landed. tapConsentButtonWithLabels:
   // paces the re-attempts itself and answers NO once the alert is gone.
   __block BOOL consentTapped = NO;
-  [[[[FBRunLoopSpinner new] timeout:MAX(deadline.timeIntervalSinceNow, 1.0)] interval:0.3] spinUntilTrue:^BOOL{
+  // No MAX(..., 1.0) floor here: granting an already-exhausted request another second is
+  // exactly the overshoot the caller's timeout is supposed to prevent.
+  [[[[FBRunLoopSpinner new] timeout:deadline.timeIntervalSinceNow] interval:0.3] spinUntilTrue:^BOOL{
     if (saveDone) {
       return YES;
     }
@@ -315,7 +419,7 @@ static uint64_t FBSocks5NowMs(void)
     reloadError = err;
     reloadDone = YES;
   }];
-  [[[[FBRunLoopSpinner new] timeout:FBSocks5PreferencesTimeout] interval:0.05] spinUntilTrue:^BOOL{
+  [[[[FBRunLoopSpinner new] timeout:FBSocks5RemainingTimeout(deadline, FBSocks5PreferencesTimeout)] interval:0.05] spinUntilTrue:^BOOL{
     return reloadDone;
   }];
   if (!reloadDone || nil != reloadError) {
@@ -330,17 +434,40 @@ static uint64_t FBSocks5NowMs(void)
                         [NSString stringWithFormat:@"Cannot start the SOCKS5 tunnel: %@",
                          startError.localizedDescription]);
   }
-  BOOL connected = [[[[FBRunLoopSpinner new] timeout:MAX(deadline.timeIntervalSinceNow, 1.0)] interval:0.2] spinUntilTrue:^BOOL{
-    return manager.connection.status == NEVPNStatusConnected;
+  // The provider now validates the proxy before it reports startup, so a rejected start comes
+  // back as the session dropping to disconnected. Stop on that rather than spinning out the
+  // caller's whole deadline for a tunnel that is never going to come up.
+  __block BOOL startRejected = NO;
+  __block BOOL leftIdle = NO;
+  BOOL connected = [[[[FBRunLoopSpinner new] timeout:deadline.timeIntervalSinceNow] interval:0.2] spinUntilTrue:^BOOL{
+    NEVPNStatus status = manager.connection.status;
+    if (status == NEVPNStatusConnected) {
+      return YES;
+    }
+    // The session can still read as disconnected for an instant after startVPNTunnel, so only
+    // treat that as terminal once it has actually entered a starting state. Reasserting still
+    // counts as in-flight; only a settled stop is terminal.
+    if (status != NEVPNStatusDisconnected && status != NEVPNStatusInvalid) {
+      leftIdle = YES;
+    } else if (leftIdle) {
+      startRejected = YES;
+      return YES;
+    }
+    return NO;
   }];
-  if (!connected) {
+  if (!connected || startRejected) {
     NEVPNStatus finalStatus = manager.connection.status;
     [manager.connection stopVPNTunnel];
     return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
-                        [NSString stringWithFormat:
-                         @"The SOCKS5 tunnel did not connect within %.0fs (status %ld). "
-                         "Check that the proxy at %@:%lu is reachable from the device",
-                         budget, (long)finalStatus, uri.host, (unsigned long)uri.port]);
+                        startRejected
+                        ? [NSString stringWithFormat:
+                           @"The SOCKS5 tunnel stopped right after starting. The proxy at %@:%lu "
+                           "is unreachable, is not a SOCKS5 proxy, or rejected the credentials",
+                           uri.host, (unsigned long)uri.port]
+                        : [NSString stringWithFormat:
+                           @"The SOCKS5 tunnel did not connect within %.0fs (status %ld). "
+                           "Check that the proxy at %@:%lu is reachable from the device",
+                           budget, (long)finalStatus, uri.host, (unsigned long)uri.port]);
   }
   self.activeManager = manager;
   [FBLogger logFmt:@"socks5/connect: tunnel connected through %@:%lu", uri.host, (unsigned long)uri.port];
@@ -349,8 +476,21 @@ static uint64_t FBSocks5NowMs(void)
 
 - (BOOL)disconnectWithError:(NSError **)error
 {
+  __block BOOL succeeded = NO;
+  __block NSError *localError = nil;
+  [self performLocked:^{
+    succeeded = [self lockedDisconnectWithError:&localError];
+  }];
+  if (!succeeded && nil != error) {
+    *error = localError;
+  }
+  return succeeded;
+}
+
+- (BOOL)lockedDisconnectWithError:(NSError **)error
+{
   NSArray<NETunnelProviderManager *> *managers;
-  if (![self loadAllManagers:&managers error:error]) {
+  if (![self loadAllManagers:&managers deadline:nil error:error]) {
     return NO;
   }
   NETunnelProviderManager *manager = [self ownManagerIn:managers] ?: self.activeManager;
@@ -363,7 +503,7 @@ static uint64_t FBSocks5NowMs(void)
     return YES;
   }
   [manager.connection stopVPNTunnel];
-  if (![self waitUntilStopped:manager]) {
+  if (![self waitUntilStopped:manager deadline:nil]) {
     return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
                         @"Timed out stopping the SOCKS5 tunnel");
   }
@@ -371,14 +511,25 @@ static uint64_t FBSocks5NowMs(void)
   return YES;
 }
 
+// Serialized like the mutating operations so a caller never observes the tunnel halfway through
+// a stop/save/reload/start sequence.
 - (NSDictionary<NSString *, id> *)statsDictionary
+{
+  __block NSDictionary<NSString *, id> *snapshot = nil;
+  [self performLocked:^{
+    snapshot = [self lockedStatsDictionary];
+  }];
+  return snapshot;
+}
+
+- (NSDictionary<NSString *, id> *)lockedStatsDictionary
 {
   NSMutableDictionary<NSString *, id> *stats = FBSocks5DisconnectedStats();
   NETunnelProviderManager *manager = self.activeManager;
   if (nil == manager) {
     // Adopt a tunnel that survived a WDA restart (the configuration persists per install).
     NSArray<NETunnelProviderManager *> *managers;
-    if ([self loadAllManagers:&managers error:nil]) {
+    if ([self loadAllManagers:&managers deadline:nil error:nil]) {
       manager = [self ownManagerIn:managers];
       self.activeManager = manager;
     }
