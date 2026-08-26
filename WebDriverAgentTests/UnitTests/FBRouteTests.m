@@ -165,6 +165,7 @@ static atomic_int gSpinningProbeCompletions;
 
 @interface FBWebServer (DispatchTests)
 - (void)registerRouteHandlers:(NSArray *)commandHandlerClasses;
+- (void)registerServerKeyRouteHandlers;
 - (FBHTTPServer *)server;
 @property (nonatomic, strong) dispatch_queue_t automationQueue;
 @end
@@ -239,6 +240,8 @@ static atomic_int gSpinningProbeCompletions;
   // Inject the server so route registration can be exercised without booting the full agent
   [self.webServer setValue:self.httpServer forKey:@"server"];
   [self.webServer registerRouteHandlers:@[FBDispatchProbeCommands.class]];
+  // Registered after the probes, so the wildcard fallbacks it also installs cannot shadow them.
+  [self.webServer registerServerKeyRouteHandlers];
   self.httpServer.port = 0;
   NSError *error;
   XCTAssertTrue([self.httpServer start:&error], @"%@", error);
@@ -258,6 +261,44 @@ static atomic_int gSpinningProbeCompletions;
 {
   NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d%@", self.port, path]];
   [[[NSURLSession sharedSession] dataTaskWithURL:url] resume];
+}
+
+// Fires a GET and waits for the body without servicing the run loop, so the main queue - and
+// therefore the automation funnel that hops onto it - stays blocked for the whole call.
+- (NSString *)synchronousGetForPath:(NSString *)path timeout:(NSTimeInterval)timeout
+{
+  NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d%@", self.port, path]];
+  __block NSString *body = nil;
+  dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+  [[NSURLSession.sharedSession dataTaskWithURL:url
+                              completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+    if (nil != data) {
+      body = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    }
+    dispatch_semaphore_signal(sem);
+  }] resume];
+  dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC)));
+  return body;
+}
+
+- (void)testHealthRouteRespondsWhileAutomationQueueIsWedged
+{
+  // /health exists to answer when automation is stuck, so it must not be registered on the
+  // funnel: queueing it behind the wedged request it is meant to diagnose would make it useless.
+  // Same reasoning covers /wda/shutdown, which is the way out of this state.
+  [self fireRequestForPath:@"/probe/automation"];
+  [NSThread sleepForTimeInterval:0.3];
+
+  NSString *body = [self synchronousGetForPath:@"/health" timeout:10.0];
+  XCTAssertTrue([body containsString:@"I-AM-ALIVE"], @"/health must answer off the funnel: %@", body);
+  XCTAssertFalse(atomic_load(&gAutomationProbeDone), @"the automation queue must still be wedged");
+
+  // Drain the queued automation request so tearDown shuts down cleanly.
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:15.0];
+  while (!atomic_load(&gAutomationProbeDone) && deadline.timeIntervalSinceNow > 0) {
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+  }
+  XCTAssertTrue(atomic_load(&gAutomationProbeDone));
 }
 
 - (void)testControlRouteRespondsWhileMainThreadIsBusy

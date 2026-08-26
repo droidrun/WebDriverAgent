@@ -339,7 +339,13 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
 
 - (void)registerServerKeyRouteHandlers
 {
-  [self.server get:@"/health" withBlock:^(RouteRequest *request, RouteResponse *response) {
+  // Registered standalone, i.e. off -routeQueue: the whole point of these three is to stay
+  // answerable while the automation funnel is wedged - /health as a liveness signal and
+  // /wda/shutdown as the way out of exactly that state. Queueing them behind the stuck request
+  // they exist to diagnose would defeat both. (/mobilerun/state is deliberately the opposite:
+  // it runs on the funnel so that a wedged queue shows up as a timeout. See
+  // docs/request-dispatch.md.)
+  [self.server handleMethod:@"GET" withPath:@"/health" standalone:YES block:^(RouteRequest *request, RouteResponse *response) {
     [response respondWithString:@"<!DOCTYPE html><html><title>Health Check</title><body><p>I-AM-ALIVE</p></body></html>"];
   }];
 
@@ -352,13 +358,13 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
   "<script>document.addEventListener(\"click\",function(e){document.title=JSON.stringify({x:e.clientX,y:e.clientY})})</script>"
   "</header>"
   "</html>";
-  [self.server get:@"/calibrate" withBlock:^(RouteRequest *request, RouteResponse *response) {
+  [self.server handleMethod:@"GET" withPath:@"/calibrate" standalone:YES block:^(RouteRequest *request, RouteResponse *response) {
     [FBLogger logFmt:@"The /calibrate endpoint is deprecated and will be removed in a future release"];
     [response respondWithString:calibrationPage];
   }];
 
   __weak typeof(self) weakSelf = self;
-  [self.server get:@"/wda/shutdown" withBlock:^(RouteRequest *request, RouteResponse *response) {
+  [self.server handleMethod:@"GET" withPath:@"/wda/shutdown" standalone:YES block:^(RouteRequest *request, RouteResponse *response) {
     __strong typeof(weakSelf) strongSelf = weakSelf;
     if (nil == strongSelf) {
       return;
