@@ -87,6 +87,18 @@ typedef NS_ENUM(NSInteger, FBVideoStreamManagerError) {
 - (nullable FBVideoStreamSession *)startSessionWithConfiguration:(FBScreenCaptureConfiguration *)configuration
                                                           error:(NSError **)error
 {
+  NSUInteger identifier;
+  BOOL shouldStartLoop = NO;
+  BOOL autoAssignPort = (0 == configuration.port);
+  NSUInteger startGeneration;
+  // Snapshot the stop generation before the XCUIScreen read below, not inside the reservation
+  // lock: a stop-all that completes while this start is stuck in that lookup would otherwise be
+  // absorbed into the start's baseline and dodge both abort checks, letting a capture appear
+  // after the stop-all already returned success.
+  @synchronized (self.sessions) {
+    startGeneration = self.stopGeneration;
+  }
+
   // Read before any state is reserved or bound: XCUIScreen goes through the automation
   // machinery, and if it ever wedges it must strand nothing — no sessions-monitor hold (the
   // control-marked capture routes stop/list/get/keyframe block on that lock and are supposed
@@ -94,12 +106,17 @@ typedef NS_ENUM(NSInteger, FBVideoStreamManagerError) {
   // that stopAllSessions cannot see or stop.
   long long mainScreenID = [XCUIScreen.mainScreen displayID];
 
-  NSUInteger identifier;
-  BOOL shouldStartLoop = NO;
-  BOOL autoAssignPort = (0 == configuration.port);
-  NSUInteger startGeneration;
   @synchronized (self.sessions) {
-    startGeneration = self.stopGeneration;
+    if (self.stopGeneration != startGeneration) {
+      // A stop-all ran to completion while this start was reading the display ID. Reject before
+      // reserving anything; the client's stop already promised this capture would not outlive it.
+      if (error) {
+        *error = [NSError errorWithDomain:FBVideoStreamManagerErrorDomain
+                                     code:FBVideoStreamManagerErrorStoppedWhileStarting
+                                 userInfo:@{NSLocalizedDescriptionKey: @"The screen capture session was stopped while it was starting"}];
+      }
+      return nil;
+    }
     // Count in-flight starts toward the cap: their sessions are not inserted until after the
     // (slow) bind/encoder start, so without this two concurrent starts could both pass the check
     // and exceed MAX_SESSIONS.
