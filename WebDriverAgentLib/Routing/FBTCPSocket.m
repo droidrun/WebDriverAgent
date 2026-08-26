@@ -30,8 +30,16 @@
 
 - (BOOL)startWithError:(NSError **)error
 {
+  // TCP_NODELAY has to be requested here: Network.framework configures it through the listener's
+  // parameters, and an accepted nw_connection_t exposes no socket descriptor to set it on later.
+  nw_parameters_configure_protocol_block_t configureTCP = NW_PARAMETERS_DEFAULT_CONFIGURATION;
+  if (self.noDelay) {
+    configureTCP = ^(nw_protocol_options_t options) {
+      nw_tcp_options_set_no_delay(options, true);
+    };
+  }
   nw_parameters_t parameters = nw_parameters_create_secure_tcp(NW_PARAMETERS_DISABLE_PROTOCOL,
-                                                                NW_PARAMETERS_DEFAULT_CONFIGURATION);
+                                                                configureTCP);
   NSString *portString = [NSString stringWithFormat:@"%u", (unsigned int)self.port];
   // portString is always valid UTF8; -UTF8String is just declared nullable in general.
   const char * _Nonnull portCString = (const char * _Nonnull)portString.UTF8String;

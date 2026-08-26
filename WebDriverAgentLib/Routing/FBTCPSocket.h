@@ -67,6 +67,14 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSString *interface;
 
 /**
+ Whether to disable Nagle's algorithm (TCP_NODELAY) on accepted connections. Must be set before
+ -startWithError: is called, since Network.framework takes it from the listener's parameters
+ rather than per accepted connection. Defaults to NO; enable it for latency-sensitive streams
+ that push many small payloads, where Nagle would otherwise coalesce them.
+ */
+@property (nonatomic) BOOL noDelay;
+
+/**
  Creates TCP socket isntance which is going to be started on the specified port
 
  @param port The actual port number
