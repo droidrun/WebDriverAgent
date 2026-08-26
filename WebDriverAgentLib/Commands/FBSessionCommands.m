@@ -193,15 +193,10 @@
     [buildInfo setObject:version forKey:@"version"];
   }
 
-#if TARGET_OS_WATCH
-  NSString *osName = @"watchOS";
-  NSString *osVersion = WKInterfaceDevice.currentDevice.systemVersion;
-  NSString *deviceKind = @"watch";
-#else
-  NSString *osName = [[UIDevice currentDevice] systemName];
-  NSString *osVersion = [[UIDevice currentDevice] systemVersion];
-  NSString *deviceKind = [self.class deviceNameByUserInterfaceIdiom:[UIDevice currentDevice].userInterfaceIdiom];
-#endif
+  NSDictionary<NSString *, NSString *> *deviceInfo = [self.class cachedDeviceInfo];
+  NSString *osName = deviceInfo[@"osName"];
+  NSString *osVersion = deviceInfo[@"osVersion"];
+  NSString *deviceKind = deviceInfo[@"deviceKind"];
 
   return FBResponseWithObject(
     @{
@@ -445,6 +440,28 @@
     @"sessionId" : [FBSession activeSession].identifier ?: NSNull.null,
     @"capabilities" : FBSessionCommands.currentCapabilities
   };
+}
+
++ (NSDictionary<NSString *, NSString *> *)cachedDeviceInfo
+{
+  static NSDictionary<NSString *, NSString *> *deviceInfo;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+#if TARGET_OS_WATCH
+    deviceInfo = @{
+      @"osName": @"watchOS",
+      @"osVersion": WKInterfaceDevice.currentDevice.systemVersion,
+      @"deviceKind": @"watch",
+    };
+#else
+    deviceInfo = @{
+      @"osName": [[UIDevice currentDevice] systemName],
+      @"osVersion": [[UIDevice currentDevice] systemVersion],
+      @"deviceKind": [self deviceNameByUserInterfaceIdiom:[UIDevice currentDevice].userInterfaceIdiom],
+    };
+#endif
+  });
+  return deviceInfo;
 }
 
 #if !TARGET_OS_WATCH

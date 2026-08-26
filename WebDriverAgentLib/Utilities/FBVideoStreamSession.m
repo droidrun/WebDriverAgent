@@ -112,8 +112,10 @@ static const NSInteger FBMaxLegacyIPhoneMajorVersion = 11;
   }
   // Validate the original numeric value: integerValue would silently truncate fractions
   // (0.5 -> 0 disables the cap; -0.5 -> 0 passes a sign check but converts to garbage).
+  // The range check must be >=: (double)NSUIntegerMax rounds up to 2^64, so > would accept
+  // exactly 2^64 and the NSUInteger cast below would overflow (undefined behavior).
   double rawBudget = ((NSNumber *)maxPixels).doubleValue;
-  if (!isfinite(rawBudget) || rawBudget < 0 || rawBudget != floor(rawBudget) || rawBudget > (double)NSUIntegerMax) {
+  if (!isfinite(rawBudget) || rawBudget < 0 || rawBudget != floor(rawBudget) || rawBudget >= (double)NSUIntegerMax) {
     return NO;
   }
   // 1..3 cannot be honored: 2x2 = 4 is the minimum encodable size.
