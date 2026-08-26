@@ -39,6 +39,45 @@ fi
 SCRIPT_SHA=$(shasum -a 256 "$0" | cut -d' ' -f1)
 STAMP="${SOURCE_ID}-${SCRIPT_SHA}-${MIN_IOS}"
 
+# build_static runs `make clean` in the shared submodule checkout, so two concurrent
+# preparations (e.g. two WDA sessions starting at once) would delete each other's archives
+# mid-compile or mid-libtool and produce nondeterministic failures or a corrupt xcframework.
+# Serialize across processes, and hold the lock across the stamp check too: the loser then
+# re-reads the stamp the winner just wrote and exits early instead of rebuilding.
+LOCK_DIR="$ROOT_DIR/ThirdParty/.hev-socks5-tunnel.lock"
+LOCK_WAIT_SECONDS=900
+LOCK_HELD=0
+BUILD_DIR=""
+
+cleanup()
+{
+    [ -n "$BUILD_DIR" ] && rm -rf "$BUILD_DIR"
+    [ "$LOCK_HELD" = "1" ] && rm -rf "$LOCK_DIR"
+    return 0
+}
+trap cleanup EXIT
+
+# mkdir is atomic on every filesystem this runs on, which `[ -e ] && touch` is not.
+waited=0
+while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+    owner=$(cat "$LOCK_DIR/pid" 2>/dev/null || true)
+    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+        echo "removing a stale hev-socks5-tunnel build lock left by pid $owner" >&2
+        rm -rf "$LOCK_DIR"
+        continue
+    fi
+    if [ "$waited" -ge "$LOCK_WAIT_SECONDS" ]; then
+        echo "error: timed out after ${LOCK_WAIT_SECONDS}s waiting for $LOCK_DIR" >&2
+        echo "       remove it by hand if no other build is running" >&2
+        exit 1
+    fi
+    [ "$waited" = "0" ] && echo "another hev-socks5-tunnel build is running; waiting for it"
+    sleep 1
+    waited=$((waited + 1))
+done
+LOCK_HELD=1
+echo $$ > "$LOCK_DIR/pid"
+
 if [ "${1:-}" != "--force" ] && [ -d "$OUTPUT" ] && [ -f "$STAMP_FILE" ] \
     && [ "$(cat "$STAMP_FILE")" = "$STAMP" ]; then
     echo "HevSocks5Tunnel.xcframework is up to date ($SUBMODULE_SHA); skipping build"
@@ -46,7 +85,6 @@ if [ "${1:-}" != "--force" ] && [ -d "$OUTPUT" ] && [ -f "$STAMP_FILE" ] \
 fi
 
 BUILD_DIR=$(mktemp -d -t hev-socks5-tunnel-build)
-trap 'rm -rf "$BUILD_DIR"' EXIT
 
 # Other-platform sources (linux/windows/jni/...) compile to empty objects on
 # iOS, producing harmless 'has no symbols' archive warnings; drop just those.
