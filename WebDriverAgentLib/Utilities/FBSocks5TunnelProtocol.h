@@ -30,6 +30,26 @@ extern NSString *const FBSocks5KeyUser;
 extern NSString *const FBSocks5KeyPass;
 /** @YES when DNS must be resolved through the proxy (socks5h://). */
 extern NSString *const FBSocks5KeyRemoteDNS;
+/** Remote WDA controller IP to exclude from the full-tunnel routes. */
+extern NSString *const FBSocks5KeyControlAddress;
+
+/** startVPNTunnelWithOptions key carrying the host's absolute whole-flow deadline. */
+extern NSString *const FBSocks5OptionStartupDeadline;
+/** Startup budget used when the tunnel is launched outside the WDA connect route. */
+extern const NSTimeInterval FBSocks5DefaultStartupTimeout;
+
+/**
+ Resolves the provider's absolute startup deadline from host-supplied options, or applies the
+ default startup timeout when no valid deadline was supplied.
+ */
+NSDate *FBSocks5TunnelStartupDeadlineFromOptions(NSDictionary<NSString *, NSObject *> *_Nullable options,
+                                                 NSDate *now);
+/** Returns the nonnegative time remaining before `deadline`, capped to one operation's limit. */
+NSTimeInterval FBSocks5TunnelRemainingStartupTime(NSDate *deadline, NSDate *now, NSTimeInterval cap);
+/** Validates the RFC 1929 username/password sub-negotiation reply. */
+BOOL FBSocks5TunnelUsernamePasswordAuthReplySucceeded(uint8_t version, uint8_t status);
+/** Returns whether a proxy-selected authentication method was present in the client greeting. */
+BOOL FBSocks5TunnelAuthenticationMethodWasOffered(uint8_t method, BOOL hasCredentials);
 
 /** sendProviderMessage verb (UTF-8 encoded) asking the extension for traffic counters. */
 extern NSString *const FBSocks5MsgStats;
@@ -67,5 +87,22 @@ extern const NSUInteger FBSocks5TunnelMTU;
  @return the YAML config string consumed by hev_socks5_tunnel_main_from_str
  */
 NSString *FBSocks5HevConfigFromProviderConfiguration(NSDictionary<NSString *, id> *providerConfiguration);
+
+/**
+ Coordinates packet-tunnel startup with stop requests so a stop cannot complete while startup
+ or network-settings cleanup is still pending.
+ */
+@interface FBSocks5TunnelStartupFence : NSObject
+
+@property (nonatomic, readonly, getter=isStopping) BOOL stopping;
+
+- (void)beginStartupWithCompletion:(void (^)(NSError *_Nullable error))completion;
+- (BOOL)waitForSignal:(dispatch_semaphore_t)signal beforeDate:(NSDate *)deadline;
+- (BOOL)performStartupActionIfNotStopping:(dispatch_block_t)block;
+- (BOOL)requestStopWithCompletion:(dispatch_block_t)completion;
+- (BOOL)finishStartupWithError:(nullable NSError *)error stoppedError:(NSError *)stoppedError;
+- (void)finishStopCleanup;
+
+@end
 
 NS_ASSUME_NONNULL_END

@@ -86,7 +86,8 @@
 
 - (void)testRejectsInvalidInput
 {
-  for (NSString *bad in @[@"", @"not a uri at all", @"socks5://h:port", @"socks5://h:70000"]) {
+  for (NSString *bad in @[@"", @"not a uri at all", @"socks5://h:port", @"socks5://h:70000",
+                            @"socks5://proxy:", @"socks5://proxy:18446744073709551616"]) {
     NSError *error;
     XCTAssertNil([FBSocks5URI parse:bad error:&error], @"'%@' should be rejected", bad);
     XCTAssertNotNil(error, @"'%@' should produce an error", bad);
@@ -94,6 +95,32 @@
   NSError *error;
   XCTAssertNil([FBSocks5URI parse:nil error:&error]);
   XCTAssertNotNil(error);
+}
+
+- (void)testRejectsIncompleteCredentials
+{
+  for (NSString *bad in @[@"socks5://user@proxy", @"socks5://:pass@proxy"]) {
+    NSError *error;
+    XCTAssertNil([FBSocks5URI parse:bad error:&error], @"'%@' should be rejected", bad);
+    XCTAssertNotNil(error, @"'%@' should produce an error", bad);
+  }
+}
+
+- (void)testParseErrorsDoNotExposeCredentials
+{
+  NSDictionary<NSString *, NSString *> *invalidURIs = @{
+    @"http://alice:secret@proxy": @"not a valid SOCKS5 proxy URI",
+    @"socks5://alice:secret@": @"must include a proxy host",
+    @"socks5://alice:secret@proxy:": @"invalid proxy port",
+  };
+  [invalidURIs enumerateKeysAndObjectsUsingBlock:^(NSString *uriString, NSString *reason, BOOL *stop) {
+    NSError *error;
+    XCTAssertNil([FBSocks5URI parse:uriString error:&error]);
+    XCTAssertNotNil(error);
+    XCTAssertTrue([error.localizedDescription containsString:reason], @"%@", error);
+    XCTAssertFalse([error.localizedDescription containsString:@"alice"], @"%@", error);
+    XCTAssertFalse([error.localizedDescription containsString:@"secret"], @"%@", error);
+  }];
 }
 
 - (void)testProviderConfigurationContainsConnectionDetails

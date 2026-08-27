@@ -18,10 +18,12 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, readonly) NSURL *url;
 @property (nonatomic, copy, readonly) NSDictionary<NSString *, NSString *> *params;
 @property (nonatomic, copy, readonly) NSData *body;
+@property (nonatomic, copy, readonly, nullable) NSString *clientAddress;
 
 - (instancetype)initWithURL:(NSURL *)url
                       params:(NSDictionary<NSString *, NSString *> *)params
-                        body:(NSData *)body;
+                        body:(NSData *)body
+               clientAddress:(nullable NSString *)clientAddress;
 
 @end
 

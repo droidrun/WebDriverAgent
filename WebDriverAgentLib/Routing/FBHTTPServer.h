@@ -56,10 +56,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  Registers a route handler that, when `standalone` is YES, bypasses -routeQueue entirely so a
- handler stuck on that queue can never block it. Concurrent requests to the same method+path are
- coalesced into a single in-flight execution, whose response is delivered to all of them; anything
- else runs on its own queue, so distinct standalone endpoints always execute in parallel with each
- other and with whatever is stuck on -routeQueue.
+ handler stuck on that queue can never block it. Concurrent requests from the same client address
+ with the same method, path, query, and body are coalesced into a single in-flight execution, whose
+ response is delivered to all of them; anything else runs on its own queue, so distinct standalone
+ requests always execute in parallel with each other and with whatever is stuck on -routeQueue.
  */
 - (void)handleMethod:(NSString *)method
             withPath:(NSString *)path

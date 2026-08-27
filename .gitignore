@@ -58,3 +58,4 @@ Gemfile.lock
 # Built from the hev-socks5-tunnel submodule (Scripts/build-hev-socks5-tunnel.sh)
 ThirdParty/HevSocks5Tunnel.xcframework/
 ThirdParty/.hev-socks5-tunnel.stamp
+ThirdParty/.hev-socks5-tunnel.lock

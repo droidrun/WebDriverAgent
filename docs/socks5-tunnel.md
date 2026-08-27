@@ -43,11 +43,16 @@ Network Extension capability.
   the SOCKS5 CONNECT. With plain `socks5` the tunnel uses public resolvers (8.8.8.8/1.1.1.1)
   and relays the DNS datagrams through the proxy's UDP relay — the proxy must support UDP
   ASSOCIATE for that; prefer `socks5h` when unsure.
-- `timeout` (optional, default 30) — seconds for the whole connect flow (consent + tunnel
-  reaching connected).
+- `timeout` (optional, default 30, maximum 300) — seconds for the whole connect flow
+  (consent + tunnel reaching connected).
 - `consentButtonLabels` (optional, default `["Allow"]`) — labels to look for on the system
   "Would Like to Add VPN Configurations" alert. Pass the localized label when the device
   language is not English.
+
+The tunnel installs full IPv4 and IPv6 routes, but excludes both the selected proxy address
+and the IP address of the HTTP client that issued `connect`. The latter preserves the active
+WDA response and subsequent `stats` or `disconnect` requests when the controller reaches the
+device through its physical default route.
 
 `stats` response value (also returned by successful `connect`/`disconnect` calls):
 
@@ -89,9 +94,10 @@ a no-op while the stamp file matches the submodule SHA (`--force` rebuilds). Pla
 
 Like the broadcast extension, the appex cannot reach the Xcode-generated `Runner.app` through
 a regular embed phase; the tunnel schemes' post-action `Scripts/embed-tunnel-extension.sh`
-copies it into `Runner.app/PlugIns`, rewrites its bundle id to `<host id>.tunnel` and
-re-signs inner-first (post-actions run on scheme-based CLI builds, including
-`build-for-testing`).
+copies it into `Runner.app/PlugIns`, verifies its build-time bundle id is `<host id>.tunnel`,
+and re-signs inner-first (post-actions run on scheme-based CLI builds, including
+`build-for-testing`). Set `WDA_PRODUCT_BUNDLE_IDENTIFIER` to the runner's base identifier so
+the runner and extension are provisioned with their final identifiers.
 
 ## Signing (device)
 

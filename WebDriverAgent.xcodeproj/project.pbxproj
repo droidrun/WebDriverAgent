@@ -7,108 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		34AB13EFF1F673084C910195 /* GCDAsyncSocket.h in Headers */ = {isa = PBXBuildFile; fileRef = 718226C72587443600661B83 /* GCDAsyncSocket.h */; };
-		718226CC2587443700661B83 /* GCDAsyncSocket.h in Headers */ = {isa = PBXBuildFile; fileRef = 718226C72587443600661B83 /* GCDAsyncSocket.h */; };
-		718226CD2587443700661B83 /* GCDAsyncSocket.h in Headers */ = {isa = PBXBuildFile; fileRef = 718226C72587443600661B83 /* GCDAsyncSocket.h */; };
-		718226CE2587443700661B83 /* GCDAsyncSocket.m in Sources */ = {isa = PBXBuildFile; fileRef = 718226C82587443600661B83 /* GCDAsyncSocket.m */; };
-		718226CF2587443700661B83 /* GCDAsyncSocket.m in Sources */ = {isa = PBXBuildFile; fileRef = 718226C82587443600661B83 /* GCDAsyncSocket.m */; };
-		FBCAFE000000000000002002 /* FBImageUtilsTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000002001 /* FBImageUtilsTests.m */; };
-		FBCAFE000000000000001002 /* FBVideoStreamSession.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000001001 /* FBVideoStreamSession.h */; };
-		FBCAFE000000000000001003 /* FBVideoStreamSession.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000001001 /* FBVideoStreamSession.h */; };
-		FBCAFE000000000000001005 /* FBVideoStreamSession.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000001004 /* FBVideoStreamSession.m */; };
-		FBCAFE000000000000001006 /* FBVideoStreamSession.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000001004 /* FBVideoStreamSession.m */; };
-		FBCAFE000000000000000002 /* FBScreenCaptureCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000001 /* FBScreenCaptureCommands.h */; };
-		FBCAFE000000000000000003 /* FBScreenCaptureCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000001 /* FBScreenCaptureCommands.h */; };
-		FBCAFE000000000000000005 /* FBScreenCaptureCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000004 /* FBScreenCaptureCommands.m */; };
-		FBCAFE000000000000000006 /* FBScreenCaptureCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000004 /* FBScreenCaptureCommands.m */; };
-		FBCAFE000000000000003002 /* FBMobilerunA11yCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003001 /* FBMobilerunA11yCommands.h */; };
-		FBCAFE000000000000003102 /* FBMobilerunActionsCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003101 /* FBMobilerunActionsCommands.h */; };
-		FBCAFE000000000000003003 /* FBMobilerunA11yCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003001 /* FBMobilerunA11yCommands.h */; };
-		FBCAFE000000000000003103 /* FBMobilerunActionsCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003101 /* FBMobilerunActionsCommands.h */; };
-		FBCAFE000000000000003005 /* FBMobilerunA11yCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003004 /* FBMobilerunA11yCommands.m */; };
-		FBCAFE000000000000003105 /* FBMobilerunActionsCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003104 /* FBMobilerunActionsCommands.m */; };
-		FBCAFE000000000000003006 /* FBMobilerunA11yCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003004 /* FBMobilerunA11yCommands.m */; };
-		FBCAFE000000000000003106 /* FBMobilerunActionsCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003104 /* FBMobilerunActionsCommands.m */; };
-		FBCAFE000000000000000008 /* FBPixelBufferConverter.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000007 /* FBPixelBufferConverter.h */; };
-		FBCAFE000000000000000009 /* FBPixelBufferConverter.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000007 /* FBPixelBufferConverter.h */; };
-		FBCAFE00000000000000000B /* FBPixelBufferConverter.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE00000000000000000A /* FBPixelBufferConverter.m */; };
-		FBCAFE00000000000000000C /* FBPixelBufferConverter.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE00000000000000000A /* FBPixelBufferConverter.m */; };
-		FBCAFE00000000000000000E /* FBVideoEncoder.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE00000000000000000D /* FBVideoEncoder.h */; };
-		FBCAFE00000000000000000F /* FBVideoEncoder.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE00000000000000000D /* FBVideoEncoder.h */; };
-		FBCAFE000000000000000011 /* FBVideoEncoder.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000010 /* FBVideoEncoder.m */; };
-		FBCAFE000000000000000012 /* FBVideoEncoder.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000010 /* FBVideoEncoder.m */; };
-		FBCAFE000000000000000014 /* FBVideoStreamManager.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000013 /* FBVideoStreamManager.h */; };
-		FBCAFE000000000000000015 /* FBVideoStreamManager.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000013 /* FBVideoStreamManager.h */; };
-		FBCAFE000000000000000017 /* FBVideoStreamManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000016 /* FBVideoStreamManager.m */; };
-		FBCAFE000000000000000018 /* FBVideoStreamManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000016 /* FBVideoStreamManager.m */; };
-		FBCAFE00000000000000001A /* FBPixelBufferConverterTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000019 /* FBPixelBufferConverterTests.m */; };
-		FBCAFE00000000000000001C /* FBVideoEncoderTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE00000000000000001B /* FBVideoEncoderTests.m */; };
-		FBCAFE000000000000004002 /* FBVideoStreamSessionTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000004001 /* FBVideoStreamSessionTests.m */; };
-		FBCAFE000000000000005103 /* FBBroadcastSampleHandler.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005102 /* FBBroadcastSampleHandler.m */; };
-		FBCAFE000000000000005106 /* FBExtBroadcastClient.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005105 /* FBExtBroadcastClient.m */; };
-		FBCAFE000000000000005109 /* FBExtSessionPipeline.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005108 /* FBExtSessionPipeline.m */; };
-		FBCAFE000000000000005201 /* FBVideoEncoder.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000010 /* FBVideoEncoder.m */; };
-		FBCAFE000000000000005202 /* GCDAsyncSocket.m in Sources */ = {isa = PBXBuildFile; fileRef = 718226C82587443600661B83 /* GCDAsyncSocket.m */; };
-		FBCAFE000000000000005203 /* FBBroadcastProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005301 /* FBBroadcastProtocol.m */; };
-		FBCAFE000000000000007006 /* FBSocks5TunnelProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007001 /* FBSocks5TunnelProtocol.m */; };
-		FBCAFE000000000000007112 /* FBTunnelPacketProvider.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007111 /* FBTunnelPacketProvider.m */; };
-		FBCAFE000000000000007115 /* FBTunFdFinder.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007114 /* FBTunFdFinder.m */; };
-		FBCAFE000000000000007118 /* FBTunnelHevRunner.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007117 /* FBTunnelHevRunner.m */; };
-		FBCAFE000000000000007121 /* HevSocks5Tunnel.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007120 /* HevSocks5Tunnel.xcframework */; };
-		FBCAFE000000000000005302 /* FBBroadcastProtocol.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005300 /* FBBroadcastProtocol.h */; };
-		FBCAFE000000000000005303 /* FBBroadcastProtocol.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005300 /* FBBroadcastProtocol.h */; };
-		FBCAFE000000000000005304 /* FBBroadcastProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005301 /* FBBroadcastProtocol.m */; };
-		FBCAFE000000000000005305 /* FBBroadcastProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005301 /* FBBroadcastProtocol.m */; };
-		FBCAFE000000000000007002 /* FBSocks5TunnelProtocol.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007000 /* FBSocks5TunnelProtocol.h */; };
-		FBCAFE000000000000007003 /* FBSocks5TunnelProtocol.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007000 /* FBSocks5TunnelProtocol.h */; };
-		FBCAFE000000000000007004 /* FBSocks5TunnelProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007001 /* FBSocks5TunnelProtocol.m */; };
-		FBCAFE000000000000007005 /* FBSocks5TunnelProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007001 /* FBSocks5TunnelProtocol.m */; };
-		FBCAFE000000000000007012 /* FBSocks5URI.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007010 /* FBSocks5URI.h */; };
-		FBCAFE000000000000007013 /* FBSocks5URI.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007010 /* FBSocks5URI.h */; };
-		FBCAFE000000000000007014 /* FBSocks5URI.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007011 /* FBSocks5URI.m */; };
-		FBCAFE000000000000007015 /* FBSocks5URI.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007011 /* FBSocks5URI.m */; };
-		FBCAFE000000000000007021 /* FBSocks5URITests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007020 /* FBSocks5URITests.m */; };
-		FBCAFE000000000000007023 /* FBSocks5ConfigTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007022 /* FBSocks5ConfigTests.m */; };
-		FBCAFE000000000000007032 /* FBSocks5TunnelManager.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007030 /* FBSocks5TunnelManager.h */; };
-		FBCAFE000000000000007033 /* FBSocks5TunnelManager.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007030 /* FBSocks5TunnelManager.h */; };
-		FBCAFE000000000000007034 /* FBSocks5TunnelManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007031 /* FBSocks5TunnelManager.m */; };
-		FBCAFE000000000000007035 /* FBSocks5TunnelManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007031 /* FBSocks5TunnelManager.m */; };
-		FBCAFE000000000000007042 /* FBMobilerunSocks5Commands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007040 /* FBMobilerunSocks5Commands.h */; };
-		FBCAFE000000000000007043 /* FBMobilerunSocks5Commands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007040 /* FBMobilerunSocks5Commands.h */; };
-		FBCAFE000000000000007044 /* FBMobilerunSocks5Commands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007041 /* FBMobilerunSocks5Commands.m */; };
-		FBCAFE000000000000007045 /* FBMobilerunSocks5Commands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007041 /* FBMobilerunSocks5Commands.m */; };
-		FBCAFE000000000000007331 /* FBMobilerunSocks5IntegrationTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007330 /* FBMobilerunSocks5IntegrationTests.m */; };
-		FBCAFE000000000000005306 /* FBBroadcastProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005301 /* FBBroadcastProtocol.m */; };
-		FBCAFE000000000000005312 /* FBBroadcastControlServer.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005310 /* FBBroadcastControlServer.h */; };
-		FBCAFE000000000000005313 /* FBBroadcastControlServer.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005310 /* FBBroadcastControlServer.h */; };
-		FBCAFE000000000000005314 /* FBBroadcastControlServer.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005311 /* FBBroadcastControlServer.m */; };
-		FBCAFE000000000000005315 /* FBBroadcastControlServer.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005311 /* FBBroadcastControlServer.m */; };
-		FBCAFE000000000000005322 /* FBBroadcastManager.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005320 /* FBBroadcastManager.h */; };
-		FBCAFE000000000000005323 /* FBBroadcastManager.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005320 /* FBBroadcastManager.h */; };
-		FBCAFE000000000000005324 /* FBBroadcastManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005321 /* FBBroadcastManager.m */; };
-		FBCAFE000000000000005325 /* FBBroadcastManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005321 /* FBBroadcastManager.m */; };
-		FBCAFE000000000000005332 /* FBBroadcastPickerHost.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005330 /* FBBroadcastPickerHost.h */; };
-		FBCAFE000000000000005333 /* FBBroadcastPickerHost.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005330 /* FBBroadcastPickerHost.h */; };
-		FBCAFE000000000000005334 /* FBBroadcastPickerHost.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005331 /* FBBroadcastPickerHost.m */; };
-		FBCAFE000000000000005335 /* FBBroadcastPickerHost.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005331 /* FBBroadcastPickerHost.m */; };
-		FBCAFE000000000000006002 /* FBScrcpyPacket.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006000 /* FBScrcpyPacket.h */; };
-		FBCAFE000000000000006003 /* FBScrcpyPacket.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006000 /* FBScrcpyPacket.h */; };
-		FBCAFE000000000000006004 /* FBScrcpyPacket.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006001 /* FBScrcpyPacket.m */; };
-		FBCAFE000000000000006005 /* FBScrcpyPacket.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006001 /* FBScrcpyPacket.m */; };
-		FBCAFE000000000000006012 /* FBAudioStreamSession.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006010 /* FBAudioStreamSession.h */; };
-		FBCAFE000000000000006013 /* FBAudioStreamSession.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006010 /* FBAudioStreamSession.h */; };
-		FBCAFE000000000000006014 /* FBAudioStreamSession.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006011 /* FBAudioStreamSession.m */; };
-		FBCAFE000000000000006015 /* FBAudioStreamSession.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006011 /* FBAudioStreamSession.m */; };
-		FBCAFE000000000000006022 /* FBAudioStreamManager.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006020 /* FBAudioStreamManager.h */; };
-		FBCAFE000000000000006023 /* FBAudioStreamManager.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006020 /* FBAudioStreamManager.h */; };
-		FBCAFE000000000000006024 /* FBAudioStreamManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006021 /* FBAudioStreamManager.m */; };
-		FBCAFE000000000000006025 /* FBAudioStreamManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006021 /* FBAudioStreamManager.m */; };
-		FBCAFE000000000000006032 /* FBAudioCaptureCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006030 /* FBAudioCaptureCommands.h */; };
-		FBCAFE000000000000006033 /* FBAudioCaptureCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006030 /* FBAudioCaptureCommands.h */; };
-		FBCAFE000000000000006034 /* FBAudioCaptureCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006031 /* FBAudioCaptureCommands.m */; };
-		FBCAFE000000000000006035 /* FBAudioCaptureCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006031 /* FBAudioCaptureCommands.m */; };
-		FBCAFE000000000000006042 /* FBExtAudioPipeline.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006041 /* FBExtAudioPipeline.m */; };
-		FBCAFE000000000000006051 /* FBAudioStreamTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006050 /* FBAudioStreamTests.m */; };
 		005B327C702EF47820887884 /* FBErrorBuilder.h in Headers */ = {isa = PBXBuildFile; fileRef = EE3A18601CDE618F00DE4205 /* FBErrorBuilder.h */; };
 		00ABDDC324B060006EA182F7 /* FBScreen.m in Sources */ = {isa = PBXBuildFile; fileRef = 715AFAC01FFA29180053896D /* FBScreen.m */; };
 		0161F45997A981E47729DB25 /* RouteResponse.h in Headers */ = {isa = PBXBuildFile; fileRef = 01E7CFEBAD717FCF4BCDD383 /* RouteResponse.h */; };
@@ -266,6 +164,7 @@
 		3400BE6CBA163DC9A58D60E6 /* XCUIApplicationProcessTracker-Protocol.h in Headers */ = {isa = PBXBuildFile; fileRef = 3238E68F292452D8234153F1 /* XCUIApplicationProcessTracker-Protocol.h */; };
 		348B7FFB742C26599E44DB67 /* XCTMessagingRole_ProcessMonitoring-Protocol.h in Headers */ = {isa = PBXBuildFile; fileRef = B43D656732067585371ADD31 /* XCTMessagingRole_ProcessMonitoring-Protocol.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		34A32D91F0C8B6A31A9E8F9A /* FBSettingsHandler.m in Sources */ = {isa = PBXBuildFile; fileRef = 71F3E7D725417FF400E0C22C /* FBSettingsHandler.m */; };
+		34AB13EFF1F673084C910195 /* GCDAsyncSocket.h in Headers */ = {isa = PBXBuildFile; fileRef = 718226C72587443600661B83 /* GCDAsyncSocket.h */; };
 		34E3403E0FE0E93C74E8FB2D /* XCTScreenCapturePolicy.h in Headers */ = {isa = PBXBuildFile; fileRef = FDB15E393EA0850C004D26B2 /* XCTScreenCapturePolicy.h */; };
 		35924251B4B5D0A486A6A0BB /* FBHTTPServer.m in Sources */ = {isa = PBXBuildFile; fileRef = AADFEA2ED9E61A8C1A99B2D7 /* FBHTTPServer.m */; };
 		35C087E005C82F9642F8A76C /* XCUIDeviceDelayedAttachmentTransferSupportInterface-Protocol.h in Headers */ = {isa = PBXBuildFile; fileRef = 4C19CEEEC9858A106061D1F8 /* XCUIDeviceDelayedAttachmentTransferSupportInterface-Protocol.h */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -623,7 +522,6 @@
 		71241D7B1FAE3D2500B9559F /* FBTouchActionCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = 71241D791FAE3D2500B9559F /* FBTouchActionCommands.h */; };
 		71241D7C1FAE3D2500B9559F /* FBTouchActionCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = 71241D7A1FAE3D2500B9559F /* FBTouchActionCommands.m */; };
 		71241D7E1FAF084E00B9559F /* FBW3CTouchActionsIntegrationTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 71241D7D1FAF084E00B9559F /* FBW3CTouchActionsIntegrationTests.m */; };
-		FBCAFE000000000000003202 /* FBMobilerunActionsIntegrationTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003201 /* FBMobilerunActionsIntegrationTests.m */; };
 		71241D801FAF087500B9559F /* FBW3CMultiTouchActionsIntegrationTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 71241D7F1FAF087500B9559F /* FBW3CMultiTouchActionsIntegrationTests.m */; };
 		712A0C851DA3E459007D02E5 /* FBXPathTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 712A0C841DA3E459007D02E5 /* FBXPathTests.m */; };
 		712A0C871DA3E55D007D02E5 /* FBXPath-Private.h in Headers */ = {isa = PBXBuildFile; fileRef = 712A0C861DA3E55D007D02E5 /* FBXPath-Private.h */; };
@@ -707,6 +605,10 @@
 		716F0DA12A16CA1000CDD977 /* NSDictionary+FBUtf8SafeDictionary.h in Headers */ = {isa = PBXBuildFile; fileRef = 716F0D9F2A16CA1000CDD977 /* NSDictionary+FBUtf8SafeDictionary.h */; };
 		716F0DA32A16CA1000CDD977 /* NSDictionary+FBUtf8SafeDictionary.m in Sources */ = {isa = PBXBuildFile; fileRef = 716F0DA02A16CA1000CDD977 /* NSDictionary+FBUtf8SafeDictionary.m */; };
 		716F0DA62A17323300CDD977 /* NSDictionaryFBUtf8SafeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 716F0DA52A17323300CDD977 /* NSDictionaryFBUtf8SafeTests.m */; };
+		718226CC2587443700661B83 /* GCDAsyncSocket.h in Headers */ = {isa = PBXBuildFile; fileRef = 718226C72587443600661B83 /* GCDAsyncSocket.h */; };
+		718226CD2587443700661B83 /* GCDAsyncSocket.h in Headers */ = {isa = PBXBuildFile; fileRef = 718226C72587443600661B83 /* GCDAsyncSocket.h */; };
+		718226CE2587443700661B83 /* GCDAsyncSocket.m in Sources */ = {isa = PBXBuildFile; fileRef = 718226C82587443600661B83 /* GCDAsyncSocket.m */; };
+		718226CF2587443700661B83 /* GCDAsyncSocket.m in Sources */ = {isa = PBXBuildFile; fileRef = 718226C82587443600661B83 /* GCDAsyncSocket.m */; };
 		7182A87F3CAA27F71B624AD2 /* XCTRunnerAutomationSession-Protocol.h in Headers */ = {isa = PBXBuildFile; fileRef = 01AF8E73DD47455B4854E470 /* XCTRunnerAutomationSession-Protocol.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		718F49C8230844330045FE8B /* FBProtocolHelpersTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 718F49C7230844330045FE8B /* FBProtocolHelpersTests.m */; };
 		718F49C923087ACF0045FE8B /* FBProtocolHelpers.h in Headers */ = {isa = PBXBuildFile; fileRef = 71B155DD23080CA600646AFB /* FBProtocolHelpers.h */; };
@@ -1292,7 +1194,6 @@
 		EE8DDD7F20C5733C004D4925 /* XCUIElement+FBForceTouch.h in Headers */ = {isa = PBXBuildFile; fileRef = EE8DDD7D20C5733C004D4925 /* XCUIElement+FBForceTouch.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		EE9AB8011CAEE048008C271F /* UITestingUITests.m in Sources */ = {isa = PBXBuildFile; fileRef = EE9AB7FD1CAEE048008C271F /* UITestingUITests.m */; };
 		EE9B76591CF7987800275851 /* FBRouteTests.m in Sources */ = {isa = PBXBuildFile; fileRef = EE9B76571CF7987300275851 /* FBRouteTests.m */; };
-		FBCAFE000000000000003011 /* FBTestInterruptionSuppressionTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003010 /* FBTestInterruptionSuppressionTests.m */; };
 		EE9B768E1CF7997600275851 /* AppDelegate.m in Sources */ = {isa = PBXBuildFile; fileRef = EE9B76831CF7997600275851 /* AppDelegate.m */; };
 		EE9B768F1CF7997600275851 /* ViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = EE9B76851CF7997600275851 /* ViewController.m */; };
 		EE9B76911CF7997600275851 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = EE9B76871CF7997600275851 /* main.m */; };
@@ -1356,6 +1257,105 @@
 		FAC85D261CAD26DB5F9D804C /* XCUIPlatformApplicationServicesProviding-Protocol.h in Headers */ = {isa = PBXBuildFile; fileRef = 3BA71BCF1FDA482419CA8596 /* XCUIPlatformApplicationServicesProviding-Protocol.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		FBAFC553152CE132D6CB98E5 /* XCUIDeviceDelayedAttachmentTransferSupportInterface-Protocol.h in Headers */ = {isa = PBXBuildFile; fileRef = 4C19CEEEC9858A106061D1F8 /* XCUIDeviceDelayedAttachmentTransferSupportInterface-Protocol.h */; };
 		FBB82323D9D57F069440BF94 /* XCTMessagingRole_SystemConfiguration-Protocol.h in Headers */ = {isa = PBXBuildFile; fileRef = EA24F4BE52B2520874E09BEF /* XCTMessagingRole_SystemConfiguration-Protocol.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		FBCAFE000000000000000002 /* FBScreenCaptureCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000001 /* FBScreenCaptureCommands.h */; };
+		FBCAFE000000000000000003 /* FBScreenCaptureCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000001 /* FBScreenCaptureCommands.h */; };
+		FBCAFE000000000000000005 /* FBScreenCaptureCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000004 /* FBScreenCaptureCommands.m */; };
+		FBCAFE000000000000000006 /* FBScreenCaptureCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000004 /* FBScreenCaptureCommands.m */; };
+		FBCAFE000000000000000008 /* FBPixelBufferConverter.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000007 /* FBPixelBufferConverter.h */; };
+		FBCAFE000000000000000009 /* FBPixelBufferConverter.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000007 /* FBPixelBufferConverter.h */; };
+		FBCAFE00000000000000000B /* FBPixelBufferConverter.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE00000000000000000A /* FBPixelBufferConverter.m */; };
+		FBCAFE00000000000000000C /* FBPixelBufferConverter.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE00000000000000000A /* FBPixelBufferConverter.m */; };
+		FBCAFE00000000000000000E /* FBVideoEncoder.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE00000000000000000D /* FBVideoEncoder.h */; };
+		FBCAFE00000000000000000F /* FBVideoEncoder.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE00000000000000000D /* FBVideoEncoder.h */; };
+		FBCAFE000000000000000011 /* FBVideoEncoder.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000010 /* FBVideoEncoder.m */; };
+		FBCAFE000000000000000012 /* FBVideoEncoder.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000010 /* FBVideoEncoder.m */; };
+		FBCAFE000000000000000014 /* FBVideoStreamManager.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000013 /* FBVideoStreamManager.h */; };
+		FBCAFE000000000000000015 /* FBVideoStreamManager.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000013 /* FBVideoStreamManager.h */; };
+		FBCAFE000000000000000017 /* FBVideoStreamManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000016 /* FBVideoStreamManager.m */; };
+		FBCAFE000000000000000018 /* FBVideoStreamManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000016 /* FBVideoStreamManager.m */; };
+		FBCAFE00000000000000001A /* FBPixelBufferConverterTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000019 /* FBPixelBufferConverterTests.m */; };
+		FBCAFE00000000000000001C /* FBVideoEncoderTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE00000000000000001B /* FBVideoEncoderTests.m */; };
+		FBCAFE000000000000001002 /* FBVideoStreamSession.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000001001 /* FBVideoStreamSession.h */; };
+		FBCAFE000000000000001003 /* FBVideoStreamSession.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000001001 /* FBVideoStreamSession.h */; };
+		FBCAFE000000000000001005 /* FBVideoStreamSession.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000001004 /* FBVideoStreamSession.m */; };
+		FBCAFE000000000000001006 /* FBVideoStreamSession.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000001004 /* FBVideoStreamSession.m */; };
+		FBCAFE000000000000002002 /* FBImageUtilsTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000002001 /* FBImageUtilsTests.m */; };
+		FBCAFE000000000000003002 /* FBMobilerunA11yCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003001 /* FBMobilerunA11yCommands.h */; };
+		FBCAFE000000000000003003 /* FBMobilerunA11yCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003001 /* FBMobilerunA11yCommands.h */; };
+		FBCAFE000000000000003005 /* FBMobilerunA11yCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003004 /* FBMobilerunA11yCommands.m */; };
+		FBCAFE000000000000003006 /* FBMobilerunA11yCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003004 /* FBMobilerunA11yCommands.m */; };
+		FBCAFE000000000000003011 /* FBTestInterruptionSuppressionTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003010 /* FBTestInterruptionSuppressionTests.m */; };
+		FBCAFE000000000000003102 /* FBMobilerunActionsCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003101 /* FBMobilerunActionsCommands.h */; };
+		FBCAFE000000000000003103 /* FBMobilerunActionsCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003101 /* FBMobilerunActionsCommands.h */; };
+		FBCAFE000000000000003105 /* FBMobilerunActionsCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003104 /* FBMobilerunActionsCommands.m */; };
+		FBCAFE000000000000003106 /* FBMobilerunActionsCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003104 /* FBMobilerunActionsCommands.m */; };
+		FBCAFE000000000000003202 /* FBMobilerunActionsIntegrationTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003201 /* FBMobilerunActionsIntegrationTests.m */; };
+		FBCAFE000000000000004002 /* FBVideoStreamSessionTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000004001 /* FBVideoStreamSessionTests.m */; };
+		FBCAFE000000000000005103 /* FBBroadcastSampleHandler.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005102 /* FBBroadcastSampleHandler.m */; };
+		FBCAFE000000000000005106 /* FBExtBroadcastClient.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005105 /* FBExtBroadcastClient.m */; };
+		FBCAFE000000000000005109 /* FBExtSessionPipeline.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005108 /* FBExtSessionPipeline.m */; };
+		FBCAFE000000000000005201 /* FBVideoEncoder.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000000010 /* FBVideoEncoder.m */; };
+		FBCAFE000000000000005202 /* GCDAsyncSocket.m in Sources */ = {isa = PBXBuildFile; fileRef = 718226C82587443600661B83 /* GCDAsyncSocket.m */; };
+		FBCAFE000000000000005203 /* FBBroadcastProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005301 /* FBBroadcastProtocol.m */; };
+		FBCAFE000000000000005302 /* FBBroadcastProtocol.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005300 /* FBBroadcastProtocol.h */; };
+		FBCAFE000000000000005303 /* FBBroadcastProtocol.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005300 /* FBBroadcastProtocol.h */; };
+		FBCAFE000000000000005304 /* FBBroadcastProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005301 /* FBBroadcastProtocol.m */; };
+		FBCAFE000000000000005305 /* FBBroadcastProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005301 /* FBBroadcastProtocol.m */; };
+		FBCAFE000000000000005306 /* FBBroadcastProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005301 /* FBBroadcastProtocol.m */; };
+		FBCAFE000000000000005312 /* FBBroadcastControlServer.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005310 /* FBBroadcastControlServer.h */; };
+		FBCAFE000000000000005313 /* FBBroadcastControlServer.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005310 /* FBBroadcastControlServer.h */; };
+		FBCAFE000000000000005314 /* FBBroadcastControlServer.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005311 /* FBBroadcastControlServer.m */; };
+		FBCAFE000000000000005315 /* FBBroadcastControlServer.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005311 /* FBBroadcastControlServer.m */; };
+		FBCAFE000000000000005322 /* FBBroadcastManager.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005320 /* FBBroadcastManager.h */; };
+		FBCAFE000000000000005323 /* FBBroadcastManager.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005320 /* FBBroadcastManager.h */; };
+		FBCAFE000000000000005324 /* FBBroadcastManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005321 /* FBBroadcastManager.m */; };
+		FBCAFE000000000000005325 /* FBBroadcastManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005321 /* FBBroadcastManager.m */; };
+		FBCAFE000000000000005332 /* FBBroadcastPickerHost.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005330 /* FBBroadcastPickerHost.h */; };
+		FBCAFE000000000000005333 /* FBBroadcastPickerHost.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005330 /* FBBroadcastPickerHost.h */; };
+		FBCAFE000000000000005334 /* FBBroadcastPickerHost.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005331 /* FBBroadcastPickerHost.m */; };
+		FBCAFE000000000000005335 /* FBBroadcastPickerHost.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005331 /* FBBroadcastPickerHost.m */; };
+		FBCAFE000000000000006002 /* FBScrcpyPacket.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006000 /* FBScrcpyPacket.h */; };
+		FBCAFE000000000000006003 /* FBScrcpyPacket.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006000 /* FBScrcpyPacket.h */; };
+		FBCAFE000000000000006004 /* FBScrcpyPacket.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006001 /* FBScrcpyPacket.m */; };
+		FBCAFE000000000000006005 /* FBScrcpyPacket.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006001 /* FBScrcpyPacket.m */; };
+		FBCAFE000000000000006012 /* FBAudioStreamSession.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006010 /* FBAudioStreamSession.h */; };
+		FBCAFE000000000000006013 /* FBAudioStreamSession.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006010 /* FBAudioStreamSession.h */; };
+		FBCAFE000000000000006014 /* FBAudioStreamSession.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006011 /* FBAudioStreamSession.m */; };
+		FBCAFE000000000000006015 /* FBAudioStreamSession.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006011 /* FBAudioStreamSession.m */; };
+		FBCAFE000000000000006022 /* FBAudioStreamManager.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006020 /* FBAudioStreamManager.h */; };
+		FBCAFE000000000000006023 /* FBAudioStreamManager.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006020 /* FBAudioStreamManager.h */; };
+		FBCAFE000000000000006024 /* FBAudioStreamManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006021 /* FBAudioStreamManager.m */; };
+		FBCAFE000000000000006025 /* FBAudioStreamManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006021 /* FBAudioStreamManager.m */; };
+		FBCAFE000000000000006032 /* FBAudioCaptureCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006030 /* FBAudioCaptureCommands.h */; };
+		FBCAFE000000000000006033 /* FBAudioCaptureCommands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006030 /* FBAudioCaptureCommands.h */; };
+		FBCAFE000000000000006034 /* FBAudioCaptureCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006031 /* FBAudioCaptureCommands.m */; };
+		FBCAFE000000000000006035 /* FBAudioCaptureCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006031 /* FBAudioCaptureCommands.m */; };
+		FBCAFE000000000000006042 /* FBExtAudioPipeline.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006041 /* FBExtAudioPipeline.m */; };
+		FBCAFE000000000000006051 /* FBAudioStreamTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006050 /* FBAudioStreamTests.m */; };
+		FBCAFE000000000000007002 /* FBSocks5TunnelProtocol.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007000 /* FBSocks5TunnelProtocol.h */; };
+		FBCAFE000000000000007003 /* FBSocks5TunnelProtocol.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007000 /* FBSocks5TunnelProtocol.h */; };
+		FBCAFE000000000000007004 /* FBSocks5TunnelProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007001 /* FBSocks5TunnelProtocol.m */; };
+		FBCAFE000000000000007005 /* FBSocks5TunnelProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007001 /* FBSocks5TunnelProtocol.m */; };
+		FBCAFE000000000000007006 /* FBSocks5TunnelProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007001 /* FBSocks5TunnelProtocol.m */; };
+		FBCAFE000000000000007012 /* FBSocks5URI.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007010 /* FBSocks5URI.h */; };
+		FBCAFE000000000000007013 /* FBSocks5URI.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007010 /* FBSocks5URI.h */; };
+		FBCAFE000000000000007014 /* FBSocks5URI.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007011 /* FBSocks5URI.m */; };
+		FBCAFE000000000000007015 /* FBSocks5URI.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007011 /* FBSocks5URI.m */; };
+		FBCAFE000000000000007021 /* FBSocks5URITests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007020 /* FBSocks5URITests.m */; };
+		FBCAFE000000000000007023 /* FBSocks5ConfigTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007022 /* FBSocks5ConfigTests.m */; };
+		FBCAFE000000000000007032 /* FBSocks5TunnelManager.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007030 /* FBSocks5TunnelManager.h */; };
+		FBCAFE000000000000007033 /* FBSocks5TunnelManager.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007030 /* FBSocks5TunnelManager.h */; };
+		FBCAFE000000000000007034 /* FBSocks5TunnelManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007031 /* FBSocks5TunnelManager.m */; };
+		FBCAFE000000000000007035 /* FBSocks5TunnelManager.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007031 /* FBSocks5TunnelManager.m */; };
+		FBCAFE000000000000007042 /* FBMobilerunSocks5Commands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007040 /* FBMobilerunSocks5Commands.h */; };
+		FBCAFE000000000000007043 /* FBMobilerunSocks5Commands.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007040 /* FBMobilerunSocks5Commands.h */; };
+		FBCAFE000000000000007044 /* FBMobilerunSocks5Commands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007041 /* FBMobilerunSocks5Commands.m */; };
+		FBCAFE000000000000007045 /* FBMobilerunSocks5Commands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007041 /* FBMobilerunSocks5Commands.m */; };
+		FBCAFE000000000000007112 /* FBTunnelPacketProvider.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007111 /* FBTunnelPacketProvider.m */; };
+		FBCAFE000000000000007115 /* FBTunFdFinder.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007114 /* FBTunFdFinder.m */; };
+		FBCAFE000000000000007118 /* FBTunnelHevRunner.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007117 /* FBTunnelHevRunner.m */; };
+		FBCAFE000000000000007121 /* HevSocks5Tunnel.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007120 /* HevSocks5Tunnel.xcframework */; };
+		FBCAFE000000000000007331 /* FBMobilerunSocks5IntegrationTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007330 /* FBMobilerunSocks5IntegrationTests.m */; };
 		FBF064E4D96CFCD08E1F4EF7 /* XCUIDevice.h in Headers */ = {isa = PBXBuildFile; fileRef = EE35ACFD1E3B77D600A02D78 /* XCUIDevice.h */; };
 		FBFEC05ED2C01D1EAE34BE9A /* WDAScreenshotAndSourceIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75F677B5B7737E7E1F321C20 /* WDAScreenshotAndSourceIntegrationTests.swift */; };
 		FC607DB5132FEF425237267B /* XCTMessagingRole_MemoryTesting-Protocol.h in Headers */ = {isa = PBXBuildFile; fileRef = 13D863EAE7F6F8B7E42D99B9 /* XCTMessagingRole_MemoryTesting-Protocol.h */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -1522,78 +1522,6 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		718226C62587443600661B83 /* GCDAsyncUdpSocket.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = GCDAsyncUdpSocket.h; path = WebDriverAgentLib/Vendor/CocoaAsyncSocket/GCDAsyncUdpSocket.h; sourceTree = SOURCE_ROOT; };
-		718226C72587443600661B83 /* GCDAsyncSocket.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = GCDAsyncSocket.h; path = WebDriverAgentLib/Vendor/CocoaAsyncSocket/GCDAsyncSocket.h; sourceTree = SOURCE_ROOT; };
-		718226C82587443600661B83 /* GCDAsyncSocket.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = GCDAsyncSocket.m; path = WebDriverAgentLib/Vendor/CocoaAsyncSocket/GCDAsyncSocket.m; sourceTree = SOURCE_ROOT; };
-		718226C92587443600661B83 /* GCDAsyncUdpSocket.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = GCDAsyncUdpSocket.m; path = WebDriverAgentLib/Vendor/CocoaAsyncSocket/GCDAsyncUdpSocket.m; sourceTree = SOURCE_ROOT; };
-		FBCAFE000000000000002001 /* FBImageUtilsTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBImageUtilsTests.m; sourceTree = "<group>"; };
-		FBCAFE000000000000001001 /* FBVideoStreamSession.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBVideoStreamSession.h; sourceTree = "<group>"; };
-		FBCAFE000000000000001004 /* FBVideoStreamSession.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBVideoStreamSession.m; sourceTree = "<group>"; };
-		FBCAFE000000000000000001 /* FBScreenCaptureCommands.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBScreenCaptureCommands.h; sourceTree = "<group>"; };
-		FBCAFE000000000000000004 /* FBScreenCaptureCommands.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBScreenCaptureCommands.m; sourceTree = "<group>"; };
-		FBCAFE000000000000003001 /* FBMobilerunA11yCommands.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBMobilerunA11yCommands.h; sourceTree = "<group>"; };
-		FBCAFE000000000000003101 /* FBMobilerunActionsCommands.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBMobilerunActionsCommands.h; sourceTree = "<group>"; };
-		FBCAFE000000000000003004 /* FBMobilerunA11yCommands.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBMobilerunA11yCommands.m; sourceTree = "<group>"; };
-		FBCAFE000000000000003104 /* FBMobilerunActionsCommands.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBMobilerunActionsCommands.m; sourceTree = "<group>"; };
-		FBCAFE000000000000000007 /* FBPixelBufferConverter.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBPixelBufferConverter.h; sourceTree = "<group>"; };
-		FBCAFE00000000000000000A /* FBPixelBufferConverter.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBPixelBufferConverter.m; sourceTree = "<group>"; };
-		FBCAFE00000000000000000D /* FBVideoEncoder.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBVideoEncoder.h; sourceTree = "<group>"; };
-		FBCAFE000000000000000010 /* FBVideoEncoder.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBVideoEncoder.m; sourceTree = "<group>"; };
-		FBCAFE000000000000000013 /* FBVideoStreamManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBVideoStreamManager.h; sourceTree = "<group>"; };
-		FBCAFE000000000000000016 /* FBVideoStreamManager.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBVideoStreamManager.m; sourceTree = "<group>"; };
-		FBCAFE000000000000000019 /* FBPixelBufferConverterTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBPixelBufferConverterTests.m; sourceTree = "<group>"; };
-		FBCAFE00000000000000001B /* FBVideoEncoderTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBVideoEncoderTests.m; sourceTree = "<group>"; };
-		FBCAFE000000000000004001 /* FBVideoStreamSessionTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBVideoStreamSessionTests.m; sourceTree = "<group>"; };
-		FBCAFE000000000000005002 /* WebDriverAgentBroadcast.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WebDriverAgentBroadcast.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		FBCAFE00000000000000500C /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		FBCAFE000000000000007102 /* WebDriverAgentTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WebDriverAgentTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		FBCAFE00000000000000710C /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = WebDriverAgentTunnel/Info.plist; sourceTree = SOURCE_ROOT; };
-		FBCAFE000000000000007110 /* FBTunnelPacketProvider.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBTunnelPacketProvider.h; sourceTree = "<group>"; };
-		FBCAFE000000000000007111 /* FBTunnelPacketProvider.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBTunnelPacketProvider.m; sourceTree = "<group>"; };
-		FBCAFE000000000000007113 /* FBTunFdFinder.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBTunFdFinder.h; sourceTree = "<group>"; };
-		FBCAFE000000000000007114 /* FBTunFdFinder.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBTunFdFinder.m; sourceTree = "<group>"; };
-		FBCAFE000000000000007116 /* FBTunnelHevRunner.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBTunnelHevRunner.h; sourceTree = "<group>"; };
-		FBCAFE000000000000007117 /* FBTunnelHevRunner.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBTunnelHevRunner.m; sourceTree = "<group>"; };
-		FBCAFE000000000000007119 /* WebDriverAgentTunnel.entitlements */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.entitlements; path = WebDriverAgentTunnel.entitlements; sourceTree = "<group>"; };
-		FBCAFE00000000000000711A /* WebDriverAgentRunner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = WebDriverAgentRunner.entitlements; path = WebDriverAgentRunner/WebDriverAgentRunner.entitlements; sourceTree = SOURCE_ROOT; };
-		FBCAFE000000000000007120 /* HevSocks5Tunnel.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = HevSocks5Tunnel.xcframework; path = ThirdParty/HevSocks5Tunnel.xcframework; sourceTree = SOURCE_ROOT; };
-		FBCAFE000000000000005101 /* FBBroadcastSampleHandler.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBBroadcastSampleHandler.h; sourceTree = "<group>"; };
-		FBCAFE000000000000005102 /* FBBroadcastSampleHandler.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBBroadcastSampleHandler.m; sourceTree = "<group>"; };
-		FBCAFE000000000000005104 /* FBExtBroadcastClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBExtBroadcastClient.h; sourceTree = "<group>"; };
-		FBCAFE000000000000005105 /* FBExtBroadcastClient.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBExtBroadcastClient.m; sourceTree = "<group>"; };
-		FBCAFE000000000000005107 /* FBExtSessionPipeline.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBExtSessionPipeline.h; sourceTree = "<group>"; };
-		FBCAFE000000000000005108 /* FBExtSessionPipeline.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBExtSessionPipeline.m; sourceTree = "<group>"; };
-		FBCAFE000000000000006000 /* FBScrcpyPacket.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBScrcpyPacket.h; sourceTree = "<group>"; };
-		FBCAFE000000000000006001 /* FBScrcpyPacket.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBScrcpyPacket.m; sourceTree = "<group>"; };
-		FBCAFE000000000000006010 /* FBAudioStreamSession.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBAudioStreamSession.h; sourceTree = "<group>"; };
-		FBCAFE000000000000006011 /* FBAudioStreamSession.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBAudioStreamSession.m; sourceTree = "<group>"; };
-		FBCAFE000000000000006020 /* FBAudioStreamManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBAudioStreamManager.h; sourceTree = "<group>"; };
-		FBCAFE000000000000006021 /* FBAudioStreamManager.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBAudioStreamManager.m; sourceTree = "<group>"; };
-		FBCAFE000000000000006030 /* FBAudioCaptureCommands.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBAudioCaptureCommands.h; sourceTree = "<group>"; };
-		FBCAFE000000000000006031 /* FBAudioCaptureCommands.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBAudioCaptureCommands.m; sourceTree = "<group>"; };
-		FBCAFE000000000000006040 /* FBExtAudioPipeline.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBExtAudioPipeline.h; sourceTree = "<group>"; };
-		FBCAFE000000000000006041 /* FBExtAudioPipeline.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBExtAudioPipeline.m; sourceTree = "<group>"; };
-		FBCAFE000000000000006050 /* FBAudioStreamTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBAudioStreamTests.m; sourceTree = "<group>"; };
-		FBCAFE00000000000000510A /* FBExtLogging.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBExtLogging.h; sourceTree = "<group>"; };
-		FBCAFE000000000000005300 /* FBBroadcastProtocol.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBBroadcastProtocol.h; sourceTree = "<group>"; };
-		FBCAFE000000000000005301 /* FBBroadcastProtocol.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBBroadcastProtocol.m; sourceTree = "<group>"; };
-		FBCAFE000000000000007000 /* FBSocks5TunnelProtocol.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBSocks5TunnelProtocol.h; sourceTree = "<group>"; };
-		FBCAFE000000000000007001 /* FBSocks5TunnelProtocol.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBSocks5TunnelProtocol.m; sourceTree = "<group>"; };
-		FBCAFE000000000000007010 /* FBSocks5URI.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBSocks5URI.h; sourceTree = "<group>"; };
-		FBCAFE000000000000007011 /* FBSocks5URI.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBSocks5URI.m; sourceTree = "<group>"; };
-		FBCAFE000000000000007020 /* FBSocks5URITests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBSocks5URITests.m; sourceTree = "<group>"; };
-		FBCAFE000000000000007022 /* FBSocks5ConfigTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBSocks5ConfigTests.m; sourceTree = "<group>"; };
-		FBCAFE000000000000007030 /* FBSocks5TunnelManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBSocks5TunnelManager.h; sourceTree = "<group>"; };
-		FBCAFE000000000000007031 /* FBSocks5TunnelManager.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBSocks5TunnelManager.m; sourceTree = "<group>"; };
-		FBCAFE000000000000007040 /* FBMobilerunSocks5Commands.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBMobilerunSocks5Commands.h; sourceTree = "<group>"; };
-		FBCAFE000000000000007041 /* FBMobilerunSocks5Commands.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBMobilerunSocks5Commands.m; sourceTree = "<group>"; };
-		FBCAFE000000000000007330 /* FBMobilerunSocks5IntegrationTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBMobilerunSocks5IntegrationTests.m; sourceTree = "<group>"; };
-		FBCAFE000000000000005310 /* FBBroadcastControlServer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBBroadcastControlServer.h; sourceTree = "<group>"; };
-		FBCAFE000000000000005311 /* FBBroadcastControlServer.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBBroadcastControlServer.m; sourceTree = "<group>"; };
-		FBCAFE000000000000005320 /* FBBroadcastManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBBroadcastManager.h; sourceTree = "<group>"; };
-		FBCAFE000000000000005321 /* FBBroadcastManager.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBBroadcastManager.m; sourceTree = "<group>"; };
-		FBCAFE000000000000005330 /* FBBroadcastPickerHost.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBBroadcastPickerHost.h; sourceTree = "<group>"; };
-		FBCAFE000000000000005331 /* FBBroadcastPickerHost.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBBroadcastPickerHost.m; sourceTree = "<group>"; };
 		003AAAB9CB5FB38E45E05F6F /* XCUIDeviceEventAndStateInterface-Protocol.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "XCUIDeviceEventAndStateInterface-Protocol.h"; sourceTree = "<group>"; };
 		00834B3220005AD5A5ABEF7C /* XCUIApplicationManaging-Protocol.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "XCUIApplicationManaging-Protocol.h"; sourceTree = "<group>"; };
 		00B1F89716AFE04C8509B916 /* FBHTTPServer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = FBHTTPServer.h; sourceTree = "<group>"; };
@@ -1713,7 +1641,6 @@
 		71241D791FAE3D2500B9559F /* FBTouchActionCommands.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FBTouchActionCommands.h; sourceTree = "<group>"; };
 		71241D7A1FAE3D2500B9559F /* FBTouchActionCommands.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FBTouchActionCommands.m; sourceTree = "<group>"; };
 		71241D7D1FAF084E00B9559F /* FBW3CTouchActionsIntegrationTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FBW3CTouchActionsIntegrationTests.m; sourceTree = "<group>"; };
-		FBCAFE000000000000003201 /* FBMobilerunActionsIntegrationTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FBMobilerunActionsIntegrationTests.m; sourceTree = "<group>"; };
 		71241D7F1FAF087500B9559F /* FBW3CMultiTouchActionsIntegrationTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FBW3CMultiTouchActionsIntegrationTests.m; sourceTree = "<group>"; };
 		712A0C841DA3E459007D02E5 /* FBXPathTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBXPathTests.m; sourceTree = "<group>"; };
 		712A0C861DA3E55D007D02E5 /* FBXPath-Private.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "FBXPath-Private.h"; sourceTree = "<group>"; };
@@ -1781,6 +1708,10 @@
 		716F0DA52A17323300CDD977 /* NSDictionaryFBUtf8SafeTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NSDictionaryFBUtf8SafeTests.m; sourceTree = "<group>"; };
 		717C0D702518ED2800CAA6EC /* TVOSSettings.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = TVOSSettings.xcconfig; sourceTree = "<group>"; };
 		717C0D862518ED7000CAA6EC /* TVOSTestSettings.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = TVOSTestSettings.xcconfig; sourceTree = "<group>"; };
+		718226C62587443600661B83 /* GCDAsyncUdpSocket.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = GCDAsyncUdpSocket.h; path = WebDriverAgentLib/Vendor/CocoaAsyncSocket/GCDAsyncUdpSocket.h; sourceTree = SOURCE_ROOT; };
+		718226C72587443600661B83 /* GCDAsyncSocket.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = GCDAsyncSocket.h; path = WebDriverAgentLib/Vendor/CocoaAsyncSocket/GCDAsyncSocket.h; sourceTree = SOURCE_ROOT; };
+		718226C82587443600661B83 /* GCDAsyncSocket.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = GCDAsyncSocket.m; path = WebDriverAgentLib/Vendor/CocoaAsyncSocket/GCDAsyncSocket.m; sourceTree = SOURCE_ROOT; };
+		718226C92587443600661B83 /* GCDAsyncUdpSocket.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = GCDAsyncUdpSocket.m; path = WebDriverAgentLib/Vendor/CocoaAsyncSocket/GCDAsyncUdpSocket.m; sourceTree = SOURCE_ROOT; };
 		7183E8C2B556594311CB8898 /* XCUIRemoteSiriInterface-Protocol.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "XCUIRemoteSiriInterface-Protocol.h"; sourceTree = "<group>"; };
 		718F49C7230844330045FE8B /* FBProtocolHelpersTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FBProtocolHelpersTests.m; sourceTree = "<group>"; };
 		71930C4020662E1F00D3AFEC /* FBPasteboard.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FBPasteboard.h; sourceTree = "<group>"; };
@@ -2087,7 +2018,6 @@
 		EE9B75D41CF7956C00275851 /* IntegrationApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = IntegrationApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		EE9B75EC1CF7956C00275851 /* IntegrationTests_1.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = IntegrationTests_1.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		EE9B76571CF7987300275851 /* FBRouteTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FBRouteTests.m; sourceTree = "<group>"; };
-		FBCAFE000000000000003010 /* FBTestInterruptionSuppressionTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FBTestInterruptionSuppressionTests.m; sourceTree = "<group>"; };
 		EE9B76581CF7987300275851 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		EE9B76821CF7997600275851 /* AppDelegate.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AppDelegate.h; sourceTree = "<group>"; };
 		EE9B76831CF7997600275851 /* AppDelegate.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = AppDelegate.m; sourceTree = "<group>"; };
@@ -2131,6 +2061,76 @@
 		F46F78706C5157469122F730 /* FBXCElementSnapshotDouble.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FBXCElementSnapshotDouble.m; sourceTree = "<group>"; };
 		F59CD6D22EF16E5E00F91287 /* XCUIElement+FBCustomActions.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "XCUIElement+FBCustomActions.h"; sourceTree = "<group>"; };
 		F59CD6D32EF16E5E00F91287 /* XCUIElement+FBCustomActions.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "XCUIElement+FBCustomActions.m"; sourceTree = "<group>"; };
+		FBCAFE000000000000000001 /* FBScreenCaptureCommands.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBScreenCaptureCommands.h; sourceTree = "<group>"; };
+		FBCAFE000000000000000004 /* FBScreenCaptureCommands.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBScreenCaptureCommands.m; sourceTree = "<group>"; };
+		FBCAFE000000000000000007 /* FBPixelBufferConverter.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBPixelBufferConverter.h; sourceTree = "<group>"; };
+		FBCAFE00000000000000000A /* FBPixelBufferConverter.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBPixelBufferConverter.m; sourceTree = "<group>"; };
+		FBCAFE00000000000000000D /* FBVideoEncoder.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBVideoEncoder.h; sourceTree = "<group>"; };
+		FBCAFE000000000000000010 /* FBVideoEncoder.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBVideoEncoder.m; sourceTree = "<group>"; };
+		FBCAFE000000000000000013 /* FBVideoStreamManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBVideoStreamManager.h; sourceTree = "<group>"; };
+		FBCAFE000000000000000016 /* FBVideoStreamManager.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBVideoStreamManager.m; sourceTree = "<group>"; };
+		FBCAFE000000000000000019 /* FBPixelBufferConverterTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBPixelBufferConverterTests.m; sourceTree = "<group>"; };
+		FBCAFE00000000000000001B /* FBVideoEncoderTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBVideoEncoderTests.m; sourceTree = "<group>"; };
+		FBCAFE000000000000001001 /* FBVideoStreamSession.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBVideoStreamSession.h; sourceTree = "<group>"; };
+		FBCAFE000000000000001004 /* FBVideoStreamSession.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBVideoStreamSession.m; sourceTree = "<group>"; };
+		FBCAFE000000000000002001 /* FBImageUtilsTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBImageUtilsTests.m; sourceTree = "<group>"; };
+		FBCAFE000000000000003001 /* FBMobilerunA11yCommands.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBMobilerunA11yCommands.h; sourceTree = "<group>"; };
+		FBCAFE000000000000003004 /* FBMobilerunA11yCommands.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBMobilerunA11yCommands.m; sourceTree = "<group>"; };
+		FBCAFE000000000000003010 /* FBTestInterruptionSuppressionTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FBTestInterruptionSuppressionTests.m; sourceTree = "<group>"; };
+		FBCAFE000000000000003101 /* FBMobilerunActionsCommands.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBMobilerunActionsCommands.h; sourceTree = "<group>"; };
+		FBCAFE000000000000003104 /* FBMobilerunActionsCommands.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBMobilerunActionsCommands.m; sourceTree = "<group>"; };
+		FBCAFE000000000000003201 /* FBMobilerunActionsIntegrationTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FBMobilerunActionsIntegrationTests.m; sourceTree = "<group>"; };
+		FBCAFE000000000000004001 /* FBVideoStreamSessionTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBVideoStreamSessionTests.m; sourceTree = "<group>"; };
+		FBCAFE000000000000005002 /* WebDriverAgentBroadcast.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WebDriverAgentBroadcast.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		FBCAFE00000000000000500C /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		FBCAFE000000000000005101 /* FBBroadcastSampleHandler.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBBroadcastSampleHandler.h; sourceTree = "<group>"; };
+		FBCAFE000000000000005102 /* FBBroadcastSampleHandler.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBBroadcastSampleHandler.m; sourceTree = "<group>"; };
+		FBCAFE000000000000005104 /* FBExtBroadcastClient.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBExtBroadcastClient.h; sourceTree = "<group>"; };
+		FBCAFE000000000000005105 /* FBExtBroadcastClient.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBExtBroadcastClient.m; sourceTree = "<group>"; };
+		FBCAFE000000000000005107 /* FBExtSessionPipeline.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBExtSessionPipeline.h; sourceTree = "<group>"; };
+		FBCAFE000000000000005108 /* FBExtSessionPipeline.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBExtSessionPipeline.m; sourceTree = "<group>"; };
+		FBCAFE00000000000000510A /* FBExtLogging.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBExtLogging.h; sourceTree = "<group>"; };
+		FBCAFE000000000000005300 /* FBBroadcastProtocol.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBBroadcastProtocol.h; sourceTree = "<group>"; };
+		FBCAFE000000000000005301 /* FBBroadcastProtocol.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBBroadcastProtocol.m; sourceTree = "<group>"; };
+		FBCAFE000000000000005310 /* FBBroadcastControlServer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBBroadcastControlServer.h; sourceTree = "<group>"; };
+		FBCAFE000000000000005311 /* FBBroadcastControlServer.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBBroadcastControlServer.m; sourceTree = "<group>"; };
+		FBCAFE000000000000005320 /* FBBroadcastManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBBroadcastManager.h; sourceTree = "<group>"; };
+		FBCAFE000000000000005321 /* FBBroadcastManager.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBBroadcastManager.m; sourceTree = "<group>"; };
+		FBCAFE000000000000005330 /* FBBroadcastPickerHost.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBBroadcastPickerHost.h; sourceTree = "<group>"; };
+		FBCAFE000000000000005331 /* FBBroadcastPickerHost.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBBroadcastPickerHost.m; sourceTree = "<group>"; };
+		FBCAFE000000000000006000 /* FBScrcpyPacket.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBScrcpyPacket.h; sourceTree = "<group>"; };
+		FBCAFE000000000000006001 /* FBScrcpyPacket.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBScrcpyPacket.m; sourceTree = "<group>"; };
+		FBCAFE000000000000006010 /* FBAudioStreamSession.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBAudioStreamSession.h; sourceTree = "<group>"; };
+		FBCAFE000000000000006011 /* FBAudioStreamSession.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBAudioStreamSession.m; sourceTree = "<group>"; };
+		FBCAFE000000000000006020 /* FBAudioStreamManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBAudioStreamManager.h; sourceTree = "<group>"; };
+		FBCAFE000000000000006021 /* FBAudioStreamManager.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBAudioStreamManager.m; sourceTree = "<group>"; };
+		FBCAFE000000000000006030 /* FBAudioCaptureCommands.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBAudioCaptureCommands.h; sourceTree = "<group>"; };
+		FBCAFE000000000000006031 /* FBAudioCaptureCommands.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBAudioCaptureCommands.m; sourceTree = "<group>"; };
+		FBCAFE000000000000006040 /* FBExtAudioPipeline.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBExtAudioPipeline.h; sourceTree = "<group>"; };
+		FBCAFE000000000000006041 /* FBExtAudioPipeline.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBExtAudioPipeline.m; sourceTree = "<group>"; };
+		FBCAFE000000000000006050 /* FBAudioStreamTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBAudioStreamTests.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007000 /* FBSocks5TunnelProtocol.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBSocks5TunnelProtocol.h; sourceTree = "<group>"; };
+		FBCAFE000000000000007001 /* FBSocks5TunnelProtocol.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBSocks5TunnelProtocol.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007010 /* FBSocks5URI.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBSocks5URI.h; sourceTree = "<group>"; };
+		FBCAFE000000000000007011 /* FBSocks5URI.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBSocks5URI.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007020 /* FBSocks5URITests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBSocks5URITests.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007022 /* FBSocks5ConfigTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBSocks5ConfigTests.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007030 /* FBSocks5TunnelManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBSocks5TunnelManager.h; sourceTree = "<group>"; };
+		FBCAFE000000000000007031 /* FBSocks5TunnelManager.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBSocks5TunnelManager.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007040 /* FBMobilerunSocks5Commands.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBMobilerunSocks5Commands.h; sourceTree = "<group>"; };
+		FBCAFE000000000000007041 /* FBMobilerunSocks5Commands.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBMobilerunSocks5Commands.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007102 /* WebDriverAgentTunnel.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WebDriverAgentTunnel.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		FBCAFE00000000000000710C /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = WebDriverAgentTunnel/Info.plist; sourceTree = SOURCE_ROOT; };
+		FBCAFE000000000000007110 /* FBTunnelPacketProvider.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBTunnelPacketProvider.h; sourceTree = "<group>"; };
+		FBCAFE000000000000007111 /* FBTunnelPacketProvider.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBTunnelPacketProvider.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007113 /* FBTunFdFinder.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBTunFdFinder.h; sourceTree = "<group>"; };
+		FBCAFE000000000000007114 /* FBTunFdFinder.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBTunFdFinder.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007116 /* FBTunnelHevRunner.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBTunnelHevRunner.h; sourceTree = "<group>"; };
+		FBCAFE000000000000007117 /* FBTunnelHevRunner.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBTunnelHevRunner.m; sourceTree = "<group>"; };
+		FBCAFE000000000000007119 /* WebDriverAgentTunnel.entitlements */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.entitlements; path = WebDriverAgentTunnel.entitlements; sourceTree = "<group>"; };
+		FBCAFE00000000000000711A /* WebDriverAgentRunner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = WebDriverAgentRunner.entitlements; path = WebDriverAgentRunner/WebDriverAgentRunner.entitlements; sourceTree = SOURCE_ROOT; };
+		FBCAFE000000000000007120 /* HevSocks5Tunnel.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = HevSocks5Tunnel.xcframework; path = ThirdParty/HevSocks5Tunnel.xcframework; sourceTree = SOURCE_ROOT; };
+		FBCAFE000000000000007330 /* FBMobilerunSocks5IntegrationTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBMobilerunSocks5IntegrationTests.m; sourceTree = "<group>"; };
 		FCD1815F2BF21CA0936B04E1 /* XCTMessagingRole_SiriAutomation-Protocol.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = "XCTMessagingRole_SiriAutomation-Protocol.h"; sourceTree = "<group>"; };
 		FDB15E393EA0850C004D26B2 /* XCTScreenCapturePolicy.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = XCTScreenCapturePolicy.h; sourceTree = "<group>"; };
 		FF8E3B470FC9639D5F18E2EA /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -2392,6 +2392,17 @@
 			name = iOS;
 			sourceTree = "<group>";
 		};
+		7182268F2587432E00661B83 /* CocoaAsyncSocket */ = {
+			isa = PBXGroup;
+			children = (
+				718226C72587443600661B83 /* GCDAsyncSocket.h */,
+				718226C82587443600661B83 /* GCDAsyncSocket.m */,
+				718226C62587443600661B83 /* GCDAsyncUdpSocket.h */,
+				718226C92587443600661B83 /* GCDAsyncUdpSocket.m */,
+			);
+			name = CocoaAsyncSocket;
+			sourceTree = "<group>";
+		};
 		89DE54DD1FA69115F5538E11 /* IntegrationTests_tvOS */ = {
 			isa = PBXGroup;
 			children = (
@@ -2507,6 +2518,14 @@
 				72519967DBAAC567B40AA1A2 /* ContentView.swift */,
 			);
 			path = IntegrationApp_watchOS;
+			sourceTree = "<group>";
+		};
+		E444DC4A24912EC40060D7EB /* Vendor */ = {
+			isa = PBXGroup;
+			children = (
+				7182268F2587432E00661B83 /* CocoaAsyncSocket */,
+			);
+			name = Vendor;
 			sourceTree = "<group>";
 		};
 		E94EE979A7D7C50FDC1EFE7D /* IntegrationTests_watchOS */ = {
@@ -3176,6 +3195,21 @@
 			path = XCTUITestRunner;
 			sourceTree = SOURCE_ROOT;
 		};
+		F47AAEACC427354CDC7C935F /* IntegrationApp_tvOS */ = {
+			isa = PBXGroup;
+			children = (
+				9DD3770A67ED561EBE5E443A /* main.m */,
+				242FCA9DD0E30D748E0A1969 /* AppDelegate.h */,
+				721E280BFFEFFD40C89277AF /* AppDelegate.m */,
+				7F87CD156E93338642EEFD54 /* ViewController.h */,
+				5D7DD32943CAC7838F942ED5 /* ViewController.m */,
+				E2F99C1A19D7B6D5B872D084 /* Info.plist */,
+				0F719C2804F6473A9C4D3090 /* SceneDelegate.h */,
+				A87AE5544E9A5CA7C9168DDF /* SceneDelegate.m */,
+			);
+			path = IntegrationApp_tvOS;
+			sourceTree = "<group>";
+		};
 		FBCAFE00000000000000500B /* WebDriverAgentBroadcast */ = {
 			isa = PBXGroup;
 			children = (
@@ -3207,40 +3241,6 @@
 				FBCAFE000000000000007120 /* HevSocks5Tunnel.xcframework */,
 			);
 			path = WebDriverAgentTunnel;
-			sourceTree = "<group>";
-		};
-		F47AAEACC427354CDC7C935F /* IntegrationApp_tvOS */ = {
-			isa = PBXGroup;
-			children = (
-				9DD3770A67ED561EBE5E443A /* main.m */,
-				242FCA9DD0E30D748E0A1969 /* AppDelegate.h */,
-				721E280BFFEFFD40C89277AF /* AppDelegate.m */,
-				7F87CD156E93338642EEFD54 /* ViewController.h */,
-				5D7DD32943CAC7838F942ED5 /* ViewController.m */,
-				E2F99C1A19D7B6D5B872D084 /* Info.plist */,
-				0F719C2804F6473A9C4D3090 /* SceneDelegate.h */,
-				A87AE5544E9A5CA7C9168DDF /* SceneDelegate.m */,
-			);
-			path = IntegrationApp_tvOS;
-			sourceTree = "<group>";
-		};
-		7182268F2587432E00661B83 /* CocoaAsyncSocket */ = {
-			isa = PBXGroup;
-			children = (
-				718226C72587443600661B83 /* GCDAsyncSocket.h */,
-				718226C82587443600661B83 /* GCDAsyncSocket.m */,
-				718226C62587443600661B83 /* GCDAsyncUdpSocket.h */,
-				718226C92587443600661B83 /* GCDAsyncUdpSocket.m */,
-			);
-			name = CocoaAsyncSocket;
-			sourceTree = "<group>";
-		};
-		E444DC4A24912EC40060D7EB /* Vendor */ = {
-			isa = PBXGroup;
-			children = (
-				7182268F2587432E00661B83 /* CocoaAsyncSocket */,
-			);
-			name = Vendor;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -5577,7 +5577,7 @@
 				);
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.facebook.WebDriverAgentRunner;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(WDA_PRODUCT_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = appletvos;
 				TARGETED_DEVICE_FAMILY = 3;
@@ -5637,7 +5637,7 @@
 				);
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.facebook.WebDriverAgentRunner;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(WDA_PRODUCT_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = appletvos;
 				TARGETED_DEVICE_FAMILY = 3;
@@ -6593,8 +6593,8 @@
 			baseConfigurationReference = EEE5CABF1C80361500CBBDD9 /* IOSSettings.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = "$(WDA_RUNNER_ENTITLEMENTS)";
 				CLANG_STATIC_ANALYZER_MODE = deep;
+				CODE_SIGN_ENTITLEMENTS = "$(WDA_RUNNER_ENTITLEMENTS)";
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_TESTING_SEARCH_PATHS = YES;
 				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
@@ -6612,7 +6612,7 @@
 					"$(inherited)",
 					"-all_load",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.facebook.WebDriverAgentRunner;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(WDA_PRODUCT_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				USES_XCTRUNNER = YES;
 				WARNING_CFLAGS = (
@@ -6648,8 +6648,8 @@
 			baseConfigurationReference = EEE5CABF1C80361500CBBDD9 /* IOSSettings.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = "$(WDA_RUNNER_ENTITLEMENTS)";
 				CLANG_STATIC_ANALYZER_MODE = deep;
+				CODE_SIGN_ENTITLEMENTS = "$(WDA_RUNNER_ENTITLEMENTS)";
 				ENABLE_TESTING_SEARCH_PATHS = YES;
 				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = WebDriverAgentRunner/Info.plist;
@@ -6667,7 +6667,7 @@
 					"$(inherited)",
 					"-all_load",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.facebook.WebDriverAgentRunner;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(WDA_PRODUCT_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				USES_XCTRUNNER = YES;
 				WARNING_CFLAGS = (
@@ -6706,7 +6706,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				GCC_TREAT_WARNINGS_AS_ERRORS = NO;
 				INFOPLIST_FILE = WebDriverAgentBroadcast/Info.plist;
-				PRODUCT_BUNDLE_IDENTIFIER = com.facebook.WebDriverAgentRunner.xctrunner.broadcast;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(WDA_PRODUCT_BUNDLE_IDENTIFIER).xctrunner.broadcast";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -6722,7 +6722,7 @@
 				GCC_TREAT_WARNINGS_AS_ERRORS = NO;
 				INFOPLIST_FILE = WebDriverAgentBroadcast/Info.plist;
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.facebook.WebDriverAgentRunner.xctrunner.broadcast;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(WDA_PRODUCT_BUNDLE_IDENTIFIER).xctrunner.broadcast";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -6737,9 +6737,10 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = "$(WDA_TUNNEL_ENTITLEMENTS)";
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
 				GCC_TREAT_WARNINGS_AS_ERRORS = NO;
 				INFOPLIST_FILE = WebDriverAgentTunnel/Info.plist;
-				PRODUCT_BUNDLE_IDENTIFIER = com.facebook.WebDriverAgentRunner.xctrunner.tunnel;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(WDA_PRODUCT_BUNDLE_IDENTIFIER).xctrunner.tunnel";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -6753,10 +6754,11 @@
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = "$(WDA_TUNNEL_ENTITLEMENTS)";
+				DEVELOPMENT_TEAM = "";
 				GCC_TREAT_WARNINGS_AS_ERRORS = NO;
 				INFOPLIST_FILE = WebDriverAgentTunnel/Info.plist;
 				ONLY_ACTIVE_ARCH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.facebook.WebDriverAgentRunner.xctrunner.tunnel;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(WDA_PRODUCT_BUNDLE_IDENTIFIER).xctrunner.tunnel";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -6971,6 +6973,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		F80B35927AACA48FC55D05B5 /* Build configuration list for PBXNativeTarget "WebDriverAgentLib_watchOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9AD9FD0D35FBBD5C87BC6F5B /* Debug */,
+				12BC722A112C4D54D64F1A9B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		FBCAFE000000000000005003 /* Build configuration list for PBXNativeTarget "WebDriverAgentBroadcast" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -6985,15 +6996,6 @@
 			buildConfigurations = (
 				FBCAFE000000000000007104 /* Debug */,
 				FBCAFE000000000000007105 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		F80B35927AACA48FC55D05B5 /* Build configuration list for PBXNativeTarget "WebDriverAgentLib_watchOS" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				9AD9FD0D35FBBD5C87BC6F5B /* Debug */,
-				12BC722A112C4D54D64F1A9B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

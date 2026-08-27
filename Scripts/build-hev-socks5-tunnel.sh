@@ -26,71 +26,60 @@ if [ ! -f "$SUBMODULE_DIR/src/hev-main.h" ]; then
     exit 1
 fi
 
-# The npm tarball ships the engine sources without any Git metadata, so the submodule SHA is
-# only available in a Git checkout. Fall back to hashing the source tree there, which keys the
-# stamp on exactly what is about to be compiled either way.
-if SUBMODULE_SHA=$(git -C "$SUBMODULE_DIR" rev-parse HEAD 2>/dev/null); then
-    SOURCE_ID="$SUBMODULE_SHA"
-else
-    SOURCE_ID=$(find "$SUBMODULE_DIR/src" -type f -exec shasum -a 256 {} + \
-                | sort | shasum -a 256 | cut -d' ' -f1)
-    SUBMODULE_SHA="tree-$SOURCE_ID"
-fi
 SCRIPT_SHA=$(shasum -a 256 "$0" | cut -d' ' -f1)
-STAMP="${SOURCE_ID}-${SCRIPT_SHA}-${MIN_IOS}"
 
 # build_static runs `make clean` in the shared submodule checkout, so two concurrent
 # preparations (e.g. two WDA sessions starting at once) would delete each other's archives
 # mid-compile or mid-libtool and produce nondeterministic failures or a corrupt xcframework.
 # Serialize across processes, and hold the lock across the stamp check too: the loser then
 # re-reads the stamp the winner just wrote and exits early instead of rebuilding.
-LOCK_DIR="$ROOT_DIR/ThirdParty/.hev-socks5-tunnel.lock"
-LOCK_WAIT_SECONDS=900
-LOCK_HELD=0
+LOCK_FILE="$ROOT_DIR/ThirdParty/.hev-socks5-tunnel.lock"
+LOCK_WAIT_SECONDS="${HEV_SOCKS5_LOCK_WAIT_SECONDS:-900}"
 BUILD_DIR=""
 
 cleanup()
 {
     [ -n "$BUILD_DIR" ] && rm -rf "$BUILD_DIR"
-    [ "$LOCK_HELD" = "1" ] && rm -rf "$LOCK_DIR"
     return 0
 }
 trap cleanup EXIT
 
-# mkdir is atomic on every filesystem this runs on, which `[ -e ] && touch` is not.
-waited=0
-while ! mkdir "$LOCK_DIR" 2>/dev/null; do
-    owner=$(cat "$LOCK_DIR/pid" 2>/dev/null || true)
-    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-        # Do NOT rm -rf the observation directly: two builders can read the same dead pid, and
-        # the slower one would then delete the lock the faster one has already re-acquired,
-        # putting both inside the shared make clean/build this lock exists to prevent. Claim it
-        # by renaming instead - mv of a directory onto a non-existent name is atomic, so exactly
-        # one builder can succeed - and only delete what we ourselves took, after re-confirming
-        # the pid inside is still the dead one we saw.
-        claimed="$LOCK_DIR.stale.$$"
-        if mv "$LOCK_DIR" "$claimed" 2>/dev/null; then
-            if [ "$(cat "$claimed/pid" 2>/dev/null || true)" = "$owner" ]; then
-                echo "reclaimed a stale hev-socks5-tunnel build lock left by pid $owner" >&2
-                rm -rf "$claimed"
-            else
-                # Somebody re-created it between our read and our rename; hand it back untouched.
-                mv "$claimed" "$LOCK_DIR" 2>/dev/null || rm -rf "$claimed"
-            fi
-        fi
-        continue
-    fi
-    if [ "$waited" -ge "$LOCK_WAIT_SECONDS" ]; then
-        echo "error: timed out after ${LOCK_WAIT_SECONDS}s waiting for $LOCK_DIR" >&2
-        echo "       remove it by hand if no other build is running" >&2
-        exit 1
-    fi
-    [ "$waited" = "0" ] && echo "another hev-socks5-tunnel build is running; waiting for it"
-    sleep 1
-    waited=$((waited + 1))
-done
-LOCK_HELD=1
-echo $$ > "$LOCK_DIR/pid"
+# Keep one inode permanently and let the kernel release its advisory lock when this process exits.
+# Unlike stale-directory reclamation, a waiter can never rename or remove another builder's live
+# lock between observing and acquiring it. Descriptor 9 remains open for the rest of the script.
+exec 9>"$LOCK_FILE"
+if ! /usr/bin/lockf -t "$LOCK_WAIT_SECONDS" 9; then
+    echo "error: timed out after ${LOCK_WAIT_SECONDS}s waiting for $LOCK_FILE" >&2
+    exit 1
+fi
+
+# The npm tarball ships the engine sources without Git metadata. `git -C` must not be allowed to
+# walk up into the consuming application's repository, where every application commit would look
+# like a new hev revision. Only trust Git when its top-level is the vendored engine itself;
+# otherwise hash every shipped input while excluding the build products made by this script.
+SUBMODULE_REALPATH="$(cd "$SUBMODULE_DIR" && pwd -P)"
+SUBMODULE_GIT_TOPLEVEL="$(git -C "$SUBMODULE_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -n "$SUBMODULE_GIT_TOPLEVEL" ] \
+    && [ "$(cd "$SUBMODULE_GIT_TOPLEVEL" && pwd -P)" = "$SUBMODULE_REALPATH" ]; then
+    SUBMODULE_SHA=$(git -C "$SUBMODULE_DIR" rev-parse HEAD)
+    SOURCE_ID="$SUBMODULE_SHA"
+else
+    SOURCE_ID=$(
+        cd "$SUBMODULE_DIR"
+        find . -name .git -prune -o -type f \
+            ! -path './bin/*' ! -path './build/*' \
+            ! -path './third-part/hev-task-system/bin/*' \
+            ! -path './third-part/hev-task-system/build/*' \
+            ! -path './third-part/lwip/bin/*' ! -path './third-part/lwip/build/*' \
+            ! -path './third-part/yaml/bin/*' ! -path './third-part/yaml/build/*' \
+            -print0 \
+          | LC_ALL=C sort -z \
+          | xargs -0 shasum -a 256 \
+          | shasum -a 256 | cut -d' ' -f1
+    )
+    SUBMODULE_SHA="tree-$SOURCE_ID"
+fi
+STAMP="${SOURCE_ID}-${SCRIPT_SHA}-${MIN_IOS}"
 
 if [ "${1:-}" != "--force" ] && [ -d "$OUTPUT" ] && [ -f "$STAMP_FILE" ] \
     && [ "$(cat "$STAMP_FILE")" = "$STAMP" ]; then

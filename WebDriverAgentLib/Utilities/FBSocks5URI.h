@@ -43,6 +43,9 @@ NS_ASSUME_NONNULL_BEGIN
  keyed by the FBSocks5Key* constants (credentials omitted when absent). */
 - (NSDictionary<NSString *, id> *)providerConfiguration;
 
+/** Adds the active WDA controller IP to the provider configuration when available. */
+- (NSDictionary<NSString *, id> *)providerConfigurationWithControlAddress:(nullable NSString *)controlAddress;
+
 @end
 
 NS_ASSUME_NONNULL_END

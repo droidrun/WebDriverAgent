@@ -67,6 +67,12 @@ typedef NS_ERROR_ENUM(FBSocks5TunnelManagerErrorDomain, FBSocks5TunnelManagerErr
                                       consentButtonLabels:(nullable NSArray<NSString *> *)consentButtonLabels
                                                     error:(NSError **)error;
 
+- (nullable NSDictionary<NSString *, id> *)connectWithURI:(FBSocks5URI *)uri
+                                           controlAddress:(nullable NSString *)controlAddress
+                                                  timeout:(NSTimeInterval)timeout
+                                      consentButtonLabels:(nullable NSArray<NSString *> *)consentButtonLabels
+                                                    error:(NSError **)error;
+
 /**
  Stops the running tunnel (the VPN configuration stays installed). Succeeds when no tunnel
  is running.

@@ -120,6 +120,18 @@ describe('WebDriverAgent', function () {
           }),
       );
     });
+
+    it('should pass a custom WDA bundle id without overriding every target bundle id', function () {
+      const agent = new WebDriverAgent({
+        ...fakeConstructorArgs,
+        realDevice: true,
+        updatedWDABundleId: 'io.appium.wda',
+      });
+      const {args} = (agent.xcodebuild as any).getCommand(true);
+
+      assert.ok(args.includes('WDA_PRODUCT_BUNDLE_IDENTIFIER=io.appium.wda'));
+      assert.ok(!args.includes('PRODUCT_BUNDLE_IDENTIFIER=io.appium.wda'));
+    });
   });
 
   describe('launch', function () {

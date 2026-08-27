@@ -9,6 +9,7 @@
 #import "FBWebServer.h"
 
 #import "FBHTTPServer.h"
+#import <stdatomic.h>
 #import "FBMjpegServer.h"
 #import "FBTCPSocket.h"
 #if !TARGET_OS_WATCH
@@ -144,13 +145,128 @@ static const void *FBAutomationFunnelKey = &FBAutomationFunnelKey;
     block();
     return;
   }
+  __block NSException *blockException = nil;
   if (NULL != dispatch_get_specific(FBAutomationFunnelKey)) {
-    dispatch_sync(dispatch_get_main_queue(), block);
+    dispatch_sync(dispatch_get_main_queue(), ^{
+      @try {
+        block();
+      } @catch (NSException *exception) {
+        blockException = exception;
+      }
+    });
+    if (nil != blockException) {
+      @throw blockException;
+    }
     return;
   }
   dispatch_sync(self.automationFunnelQueue, ^{
-    dispatch_sync(dispatch_get_main_queue(), block);
+    dispatch_sync(dispatch_get_main_queue(), ^{
+      @try {
+        block();
+      } @catch (NSException *exception) {
+        blockException = exception;
+      }
+    });
   });
+  if (nil != blockException) {
+    @throw blockException;
+  }
+}
+
++ (BOOL)performAutomationBlockOnMainQueue:(dispatch_block_t)block
+                                beforeDate:(NSDate *)deadline
+{
+  if (NSThread.isMainThread) {
+    if (deadline.timeIntervalSinceNow <= 0) {
+      return NO;
+    }
+    block();
+    return YES;
+  }
+  if (NULL != dispatch_get_specific(FBAutomationFunnelKey)) {
+    __block BOOL executed = NO;
+    __block NSException *blockException = nil;
+    dispatch_sync(dispatch_get_main_queue(), ^{
+      if (deadline.timeIntervalSinceNow <= 0) {
+        return;
+      }
+      executed = YES;
+      @try {
+        block();
+      } @catch (NSException *exception) {
+        blockException = exception;
+      }
+    });
+    if (nil != blockException) {
+      @throw blockException;
+    }
+    return executed;
+  }
+
+  enum {
+    FBAutomationBlockPending,
+    FBAutomationBlockExecuting,
+    FBAutomationBlockCancelled,
+    FBAutomationBlockFinished,
+  };
+  __block volatile atomic_int state = FBAutomationBlockPending;
+  __block NSException *blockException = nil;
+  dispatch_semaphore_t completion = dispatch_semaphore_create(0);
+  dispatch_async(self.automationFunnelQueue, ^{
+    @try {
+      if (atomic_load_explicit(&state, memory_order_acquire) == FBAutomationBlockCancelled) {
+        return;
+      }
+      dispatch_sync(dispatch_get_main_queue(), ^{
+        int expected = FBAutomationBlockPending;
+        if (deadline.timeIntervalSinceNow > 0
+            && atomic_compare_exchange_strong_explicit(&state, &expected,
+                                                       FBAutomationBlockExecuting,
+                                                       memory_order_acq_rel,
+                                                       memory_order_acquire)) {
+          @try {
+            block();
+          } @catch (NSException *exception) {
+            blockException = exception;
+          } @finally {
+            atomic_store_explicit(&state, FBAutomationBlockFinished, memory_order_release);
+          }
+        } else {
+          expected = FBAutomationBlockPending;
+          atomic_compare_exchange_strong_explicit(&state, &expected,
+                                                  FBAutomationBlockCancelled,
+                                                  memory_order_acq_rel,
+                                                  memory_order_acquire);
+        }
+      });
+    } @finally {
+      dispatch_semaphore_signal(completion);
+    }
+  });
+
+  NSTimeInterval budget = deadline.timeIntervalSinceNow;
+  long waitResult = budget <= 0
+    ? 1
+    : dispatch_semaphore_wait(completion, dispatch_time(DISPATCH_TIME_NOW,
+                                                        (int64_t)(budget * NSEC_PER_SEC)));
+  if (0 != waitResult) {
+    int expected = FBAutomationBlockPending;
+    if (atomic_compare_exchange_strong_explicit(&state, &expected,
+                                                FBAutomationBlockCancelled,
+                                                memory_order_acq_rel,
+                                                memory_order_acquire)) {
+      return NO;
+    }
+    if (atomic_load_explicit(&state, memory_order_acquire) == FBAutomationBlockCancelled) {
+      return NO;
+    }
+    dispatch_semaphore_wait(completion, DISPATCH_TIME_FOREVER);
+  }
+  BOOL finished = atomic_load_explicit(&state, memory_order_acquire) == FBAutomationBlockFinished;
+  if (finished && nil != blockException) {
+    @throw blockException;
+  }
+  return finished;
 }
 
 - (BOOL)startHTTPServer
@@ -329,6 +445,7 @@ static const void *FBAutomationFunnelKey = &FBAutomationFunnelKey;
           routeRequestWithURL:request.url
           parameters:request.params
           arguments:arguments ?: @{}
+          clientAddress:request.clientAddress
         ];
 
         [FBLogger verboseLog:routeParams.description];

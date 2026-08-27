@@ -8,6 +8,8 @@
 
 #import "FBMobilerunSocks5Commands.h"
 
+#include <math.h>
+
 #import "FBCommandStatus.h"
 #import "FBResponsePayload.h"
 #import "FBRoute.h"
@@ -16,6 +18,28 @@
 #import "FBSocks5URI.h"
 
 static const NSTimeInterval FBSocks5ConnectDefaultTimeout = 30.0;
+static const NSTimeInterval FBSocks5ConnectMaximumTimeout = 300.0;
+
+BOOL FBSocks5ConnectTimeoutFromValue(id _Nullable value, NSTimeInterval *timeout)
+{
+  NSTimeInterval validatedTimeout = FBSocks5ConnectDefaultTimeout;
+  if (nil != value) {
+    if (![value isKindOfClass:NSNumber.class]
+        || CFGetTypeID((__bridge CFTypeRef)value) == CFBooleanGetTypeID()) {
+      return NO;
+    }
+    validatedTimeout = [value doubleValue];
+    if (!isfinite(validatedTimeout)
+        || validatedTimeout <= 0
+        || validatedTimeout > FBSocks5ConnectMaximumTimeout) {
+      return NO;
+    }
+  }
+  if (NULL != timeout) {
+    *timeout = validatedTimeout;
+  }
+  return YES;
+}
 
 @implementation FBMobilerunSocks5Commands
 
@@ -25,12 +49,12 @@ static const NSTimeInterval FBSocks5ConnectDefaultTimeout = 30.0;
 {
   return
   @[
-    [[FBRoute POST:@"/mobilerun/socks5/connect"].onControlQueue respondWithTarget:self action:@selector(handleConnect:)],
-    [[FBRoute POST:@"/mobilerun/socks5/disconnect"].onControlQueue respondWithTarget:self action:@selector(handleDisconnect:)],
-    [[FBRoute GET:@"/mobilerun/socks5/stats"].onControlQueue respondWithTarget:self action:@selector(handleStats:)],
-    [[FBRoute POST:@"/mobilerun/socks5/connect"].withoutSession.onControlQueue respondWithTarget:self action:@selector(handleConnect:)],
-    [[FBRoute POST:@"/mobilerun/socks5/disconnect"].withoutSession.onControlQueue respondWithTarget:self action:@selector(handleDisconnect:)],
-    [[FBRoute GET:@"/mobilerun/socks5/stats"].withoutSession.onControlQueue respondWithTarget:self action:@selector(handleStats:)],
+    [[FBRoute POST:@"/mobilerun/socks5/connect"].standalone respondWithTarget:self action:@selector(handleConnect:)],
+    [[FBRoute POST:@"/mobilerun/socks5/disconnect"].standalone respondWithTarget:self action:@selector(handleDisconnect:)],
+    [[FBRoute GET:@"/mobilerun/socks5/stats"].standalone respondWithTarget:self action:@selector(handleStats:)],
+    [[FBRoute POST:@"/mobilerun/socks5/connect"].withoutSession.standalone respondWithTarget:self action:@selector(handleConnect:)],
+    [[FBRoute POST:@"/mobilerun/socks5/disconnect"].withoutSession.standalone respondWithTarget:self action:@selector(handleDisconnect:)],
+    [[FBRoute GET:@"/mobilerun/socks5/stats"].withoutSession.standalone respondWithTarget:self action:@selector(handleStats:)],
   ];
 }
 
@@ -49,10 +73,12 @@ static const NSTimeInterval FBSocks5ConnectDefaultTimeout = 30.0;
     return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:parseError.localizedDescription
                                                                        traceback:nil]);
   }
-  NSTimeInterval timeout = FBSocks5ConnectDefaultTimeout;
+  NSTimeInterval timeout;
   id timeoutValue = request.arguments[@"timeout"];
-  if ([timeoutValue isKindOfClass:NSNumber.class] && [timeoutValue doubleValue] > 0) {
-    timeout = [timeoutValue doubleValue];
+  if (!FBSocks5ConnectTimeoutFromValue(timeoutValue, &timeout)) {
+    return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:
+                                 @"'timeout' must be a finite number greater than 0 and at most 300 seconds"
+                                                                       traceback:nil]);
   }
   NSArray<NSString *> *consentLabels = nil;
   id labelsValue = request.arguments[@"consentButtonLabels"];
@@ -69,6 +95,7 @@ static const NSTimeInterval FBSocks5ConnectDefaultTimeout = 30.0;
   // a tunnel that is already gone.
   NSDictionary<NSString *, id> *stats =
     [FBSocks5TunnelManager.sharedInstance connectWithURI:uri
+                                         controlAddress:request.clientAddress
                                                  timeout:timeout
                                      consentButtonLabels:consentLabels
                                                    error:&error];

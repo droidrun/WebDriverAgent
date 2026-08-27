@@ -8,6 +8,8 @@
 
 #import "FBSocks5TunnelManager.h"
 
+#import <stdatomic.h>
+
 #import "FBSocks5TunnelProtocol.h"
 #import "FBSocks5URI.h"
 
@@ -35,6 +37,102 @@ static BOOL FBSocks5TunnelExtensionEmbedded(NSBundle *bundle)
     && isDirectory;
 }
 
+static const NSTimeInterval FBSocks5PreferencesTimeout = 10.0;
+
+FBSocks5TunnelManagerError FBSocks5TunnelManagerSaveFailureCode(BOOL completed)
+{
+  return completed ? FBSocks5TunnelManagerErrorNotAuthorized : FBSocks5TunnelManagerErrorTimeout;
+}
+
+/**
+ How long an individual wait may block: whatever is left of the caller's whole-flow deadline,
+ never more than that stage's own cap. `deadline` is nil for the flows that do not carry one
+ (disconnect, stats), which then just get the cap. A non-positive result means the caller's
+ budget is exhausted and the stage must not start at all.
+ */
+static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTimeInterval cap)
+{
+  return nil == deadline ? cap : MIN(cap, deadline.timeIntervalSinceNow);
+}
+
+@interface FBSocks5LifecycleGuard : NSObject
+@property (nonatomic, strong) NSRecursiveLock *lifecycleLock;
+/**
+ Signalled when a saveToPreferences that outlived its request finally completes.
+
+ Returning from a timed-out save does not cancel it - NetworkExtension can still persist the
+ manager afterwards. A follow-up operation that ran before that landed would load no manager,
+ build a second one with the same provider id, and end up with two persisted configurations.
+ */
+@property (atomic, strong, nullable) dispatch_semaphore_t pendingSaveSignal;
+- (BOOL)performLockedWithDeadline:(nullable NSDate *)deadline
+                            block:(NS_NOESCAPE dispatch_block_t)block;
+- (void)performLocked:(NS_NOESCAPE dispatch_block_t)block;
+- (BOOL)fencePendingSaveWithDeadline:(nullable NSDate *)deadline error:(NSError **)error;
+@end
+
+@implementation FBSocks5LifecycleGuard
+
+- (instancetype)init
+{
+  self = [super init];
+  if (nil != self) {
+    _lifecycleLock = [[NSRecursiveLock alloc] init];
+    _lifecycleLock.name = @"com.facebook.WebDriverAgent.socks5-lifecycle";
+  }
+  return self;
+}
+
+- (BOOL)performLockedWithDeadline:(nullable NSDate *)deadline
+                            block:(NS_NOESCAPE dispatch_block_t)block
+{
+  BOOL acquired;
+  if (nil == deadline) {
+    [self.lifecycleLock lock];
+    acquired = YES;
+  } else {
+    acquired = [self.lifecycleLock lockBeforeDate:(NSDate *)deadline];
+  }
+  if (!acquired) {
+    return NO;
+  }
+  @try {
+    block();
+  } @finally {
+    [self.lifecycleLock unlock];
+  }
+  return YES;
+}
+
+- (void)performLocked:(NS_NOESCAPE dispatch_block_t)block
+{
+  [self performLockedWithDeadline:nil block:block];
+}
+
+- (BOOL)fencePendingSaveWithDeadline:(nullable NSDate *)deadline error:(NSError **)error
+{
+  dispatch_semaphore_t signal = self.pendingSaveSignal;
+  if (nil == signal) {
+    return YES;
+  }
+  NSTimeInterval budget = FBSocks5RemainingTimeout(deadline, FBSocks5PreferencesTimeout);
+  if (budget <= 0
+      || 0 != dispatch_semaphore_wait(signal, dispatch_time(DISPATCH_TIME_NOW,
+                                                            (int64_t)(budget * NSEC_PER_SEC)))) {
+    return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
+                        @"Timed out waiting for a previous VPN configuration save to finish");
+  }
+  self.pendingSaveSignal = nil;
+  return YES;
+}
+
+@end
+
+@interface FBSocks5TunnelManager ()
+/** Serializes the whole tunnel lifecycle without allowing a timed acquisition to execute later. */
+@property (nonatomic, strong) FBSocks5LifecycleGuard *lifecycle;
+@end
+
 static NSMutableDictionary<NSString *, id> *FBSocks5DisconnectedStats(void)
 {
   return [@{
@@ -44,6 +142,11 @@ static NSMutableDictionary<NSString *, id> *FBSocks5DisconnectedStats(void)
     FBSocks5StatsKeyRxPackets: @0,
     FBSocks5StatsKeyTxPackets: @0,
   } mutableCopy];
+}
+
+NSDictionary<NSString *, id> *_Nullable FBSocks5TunnelManagerDisconnectedStatsIfExtensionUnavailable(NSBundle *bundle)
+{
+  return FBSocks5TunnelExtensionEmbedded(bundle) ? nil : FBSocks5DisconnectedStats().copy;
 }
 
 #if TARGET_OS_SIMULATOR || TARGET_OS_TV
@@ -61,6 +164,19 @@ static NSMutableDictionary<NSString *, id> *FBSocks5DisconnectedStats(void)
 }
 
 - (nullable NSDictionary<NSString *, id> *)connectWithURI:(FBSocks5URI *)uri
+                                                  timeout:(NSTimeInterval)timeout
+                                      consentButtonLabels:(nullable NSArray<NSString *> *)consentButtonLabels
+                                                    error:(NSError **)error
+{
+  return [self connectWithURI:uri
+               controlAddress:nil
+                      timeout:timeout
+          consentButtonLabels:consentButtonLabels
+                        error:error];
+}
+
+- (nullable NSDictionary<NSString *, id> *)connectWithURI:(FBSocks5URI *)uri
+                                           controlAddress:(nullable NSString *)controlAddress
                                                   timeout:(NSTimeInterval)timeout
                                       consentButtonLabels:(nullable NSArray<NSString *> *)consentButtonLabels
                                                     error:(NSError **)error
@@ -87,6 +203,15 @@ static NSMutableDictionary<NSString *, id> *FBSocks5DisconnectedStats(void)
   return FBSocks5TunnelExtensionEmbedded(bundle);
 }
 
+- (instancetype)init
+{
+  self = [super init];
+  if (nil != self) {
+    _lifecycle = [[FBSocks5LifecycleGuard alloc] init];
+  }
+  return self;
+}
+
 @end
 
 #else
@@ -103,11 +228,10 @@ static NSMutableDictionary<NSString *, id> *FBSocks5DisconnectedStats(void)
 #import "XCUIApplication+FBTouchAction.h"
 #import "XCUIElement.h"
 
-// The embed script rewrites the extension bundle id to '<runner bundle id>.tunnel'
-// (see Scripts/embed-tunnel-extension.sh), so derive it the same way at runtime.
+// The extension target is built as '<runner bundle id>.xctrunner.tunnel', which becomes
+// '<generated Runner.app bundle id>.tunnel'; derive the provider id from that final host id.
 static NSString *const FBSocks5TunnelBundleSuffix = @".tunnel";
 static NSString *const FBSocks5TunnelDescription = @"mobilerun SOCKS5";
-static const NSTimeInterval FBSocks5PreferencesTimeout = 10.0;
 static const NSTimeInterval FBSocks5StopTimeout = 10.0;
 static const NSTimeInterval FBSocks5StatsReplyTimeout = 3.0;
 static const NSTimeInterval FBSocks5DefaultConnectTimeout = 30.0;
@@ -119,42 +243,10 @@ static uint64_t FBSocks5NowMs(void)
   return clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) / NSEC_PER_MSEC;
 }
 
-/// Queue-specific marker used to detect that the caller already holds the lifecycle queue.
-static const void *FBSocks5LifecycleQueueKey = &FBSocks5LifecycleQueueKey;
-
-/**
- How long an individual wait may block: whatever is left of the caller's whole-flow deadline,
- never more than that stage's own cap. `deadline` is nil for the flows that do not carry one
- (disconnect, stats), which then just get the cap. A non-positive result means the caller's
- budget is exhausted and the stage must not start at all.
- */
-static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTimeInterval cap)
-{
-  return nil == deadline ? cap : MIN(cap, deadline.timeIntervalSinceNow);
-}
-
 @interface FBSocks5TunnelManager ()
 @property (nonatomic, nullable) NETunnelProviderManager *activeManager;
 /** Monotonic ms timestamp of the last consent tap dispatch; guards the re-attempt cooldown. */
 @property (nonatomic) uint64_t lastConsentTapMs;
-/**
- Signalled when a saveToPreferences that outlived its request finally completes.
-
- Returning from a timed-out save does not cancel it - NetworkExtension can still persist the
- manager afterwards. A follow-up operation that ran before that landed would load no manager,
- build a second one with the same provider id, and end up with two persisted configurations;
- ownManagerIn: could then hand a disconnected duplicate to disconnect, which would report
- success while the real tunnel kept running. Non-nil means such a save is still outstanding.
- */
-@property (atomic, nullable) dispatch_semaphore_t pendingSaveSignal;
-/**
- Serializes the whole tunnel lifecycle. The socks5 routes are marked onControlQueue, and
- FBWebServer only funnels the non-control ones, so requests arriving over different HTTP
- connections reach this singleton concurrently on their own connection queues. Without this
- queue a disconnect could return while an in-flight connect goes on to start the tunnel, and
- two connects could race different proxy configurations through stop/save/reload/start.
- */
-@property (nonatomic, strong) dispatch_queue_t lifecycleQueue;
 @end
 
 @implementation FBSocks5TunnelManager
@@ -178,42 +270,9 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
 {
   self = [super init];
   if (nil != self) {
-    _lifecycleQueue = dispatch_queue_create("com.facebook.WebDriverAgent.socks5-lifecycle",
-                                            DISPATCH_QUEUE_SERIAL);
-    dispatch_queue_set_specific(_lifecycleQueue, FBSocks5LifecycleQueueKey,
-                                (void *)FBSocks5LifecycleQueueKey, NULL);
+    _lifecycle = [[FBSocks5LifecycleGuard alloc] init];
   }
   return self;
-}
-
-/**
- Blocks until a save left in flight by a timed-out connect settles, so the next operation sees
- whatever it persisted instead of racing it. Safe to call from the lifecycle queue: the
- completion is delivered on the main queue, which this queue does not occupy.
- */
-- (void)fencePendingSaveWithDeadline:(nullable NSDate *)deadline
-{
-  dispatch_semaphore_t signal = self.pendingSaveSignal;
-  if (nil == signal) {
-    return;
-  }
-  NSTimeInterval budget = FBSocks5RemainingTimeout(deadline, FBSocks5PreferencesTimeout);
-  if (budget > 0) {
-    [FBLogger log:@"socks5: waiting for a previously timed-out VPN save to settle"];
-    dispatch_semaphore_wait(signal, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(budget * NSEC_PER_SEC)));
-  }
-  // Cleared either way: a save that outlives even this is not worth blocking every later call on.
-  self.pendingSaveSignal = nil;
-}
-
-/// Runs `block` with the lifecycle queue held, tolerating a caller that already holds it.
-- (void)performLocked:(NS_NOESCAPE dispatch_block_t)block
-{
-  if (NULL != dispatch_get_specific(FBSocks5LifecycleQueueKey)) {
-    block();
-    return;
-  }
-  dispatch_sync(self.lifecycleQueue, block);
 }
 
 #pragma mark - Helpers
@@ -234,18 +293,18 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
   }
   __block NSArray<NETunnelProviderManager *> *managers = nil;
   __block NSError *loadError = nil;
-  __block BOOL done = NO;
+  __block volatile atomic_bool done = false;
   [NETunnelProviderManager loadAllFromPreferencesWithCompletionHandler:^(NSArray<NETunnelProviderManager *> *all, NSError *err) {
     managers = all;
     loadError = err;
-    done = YES;
+    atomic_store_explicit(&done, true, memory_order_release);
   }];
   [[[[FBRunLoopSpinner new] timeout:budget] interval:0.05] spinUntilTrue:^BOOL{
-    return done;
+    return atomic_load_explicit(&done, memory_order_acquire);
   }];
   // Running out of budget is a timeout, not an internal fault: collapsing the two would surface
   // a plain deadline miss as 'unknown error' instead of the documented timeout response.
-  if (!done) {
+  if (!atomic_load_explicit(&done, memory_order_acquire)) {
     return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
                         @"Timed out loading the VPN preferences");
   }
@@ -261,7 +320,7 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
 }
 
 // Returns the manager for our own provider, preferring one that is not idle. Duplicates with the
-// same provider id can exist transiently (see pendingSaveSignal); picking whichever came first
+// same provider id can exist transiently (see the pending-save fence); picking whichever came first
 // would let a disconnected duplicate shadow the running tunnel, so disconnect would report
 // success without stopping anything.
 - (nullable NETunnelProviderManager *)ownManagerIn:(NSArray<NETunnelProviderManager *> *)managers
@@ -302,7 +361,7 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
 // polled from within the save wait loop. Devices with a passcode additionally ask for it,
 // which cannot be automated (documented in docs/socks5-tunnel.md).
 // XCUI is only safe to touch from the main thread, and the socks5 routes are served off it
-// (they are marked onControlQueue so the main queue stays free to drain the NetworkExtension
+// (they are marked standalone so the main queue stays free to drain the NetworkExtension
 // completion handlers this class waits on). Every XCUI access below therefore hops onto the
 // automation funnel and then the main queue, which is the same path the main-queue-served
 // routes - e.g. the broadcast start/stop pair, whose consent handling this mirrors - take.
@@ -357,10 +416,10 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
   return nil;
 }
 
-- (BOOL)tapConsentButtonWithLabels:(NSArray<NSString *> *)labels
+- (BOOL)tapConsentButtonWithLabels:(NSArray<NSString *> *)labels deadline:(NSDate *)deadline
 {
   __block BOOL dispatched = NO;
-  [FBWebServer performAutomationBlockOnMainQueue:^{
+  BOOL acquired = [FBWebServer performAutomationBlockOnMainQueue:^{
     XCUIApplication *system = XCUIApplication.fb_systemApplication;
     for (NSString *label in labels) {
       XCUIElement *button = [self consentAlertButtonWithLabel:label];
@@ -398,13 +457,26 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
       dispatched = YES;
       return;
     }
-  }];
-  return dispatched;
+  } beforeDate:deadline];
+  return acquired && dispatched;
 }
 
 #pragma mark - Public API
 
 - (nullable NSDictionary<NSString *, id> *)connectWithURI:(FBSocks5URI *)uri
+                                                  timeout:(NSTimeInterval)timeout
+                                      consentButtonLabels:(nullable NSArray<NSString *> *)consentButtonLabels
+                                                    error:(NSError **)error
+{
+  return [self connectWithURI:uri
+               controlAddress:nil
+                      timeout:timeout
+          consentButtonLabels:consentButtonLabels
+                        error:error];
+}
+
+- (nullable NSDictionary<NSString *, id> *)connectWithURI:(FBSocks5URI *)uri
+                                           controlAddress:(nullable NSString *)controlAddress
                                                   timeout:(NSTimeInterval)timeout
                                       consentButtonLabels:(nullable NSArray<NSString *> *)consentButtonLabels
                                                     error:(NSError **)error
@@ -423,8 +495,9 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
   }
   __block NSDictionary<NSString *, id> *snapshot = nil;
   __block NSError *localError = nil;
-  [self performLocked:^{
+  BOOL acquired = [self.lifecycle performLockedWithDeadline:deadline block:^{
     if ([self lockedConnectWithURI:uri
+                    controlAddress:controlAddress
                           deadline:deadline
                consentButtonLabels:consentButtonLabels
                              error:&localError]) {
@@ -435,6 +508,10 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
       snapshot = [self lockedStatsDictionaryWithDeadline:deadline];
     }
   }];
+  if (!acquired) {
+    FBSocks5Fail(&localError, FBSocks5TunnelManagerErrorTimeout,
+                 @"Timed out waiting for another SOCKS5 lifecycle operation to finish");
+  }
   if (nil == snapshot && nil != error) {
     *error = localError;
   }
@@ -442,6 +519,7 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
 }
 
 - (BOOL)lockedConnectWithURI:(FBSocks5URI *)uri
+              controlAddress:(nullable NSString *)controlAddress
                     deadline:(NSDate *)deadline
          consentButtonLabels:(nullable NSArray<NSString *> *)consentButtonLabels
                        error:(NSError **)error
@@ -449,7 +527,9 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
   NSTimeInterval budget = deadline.timeIntervalSinceNow;
   NSArray<NSString *> *labels = consentButtonLabels.count > 0 ? consentButtonLabels : @[@"Allow"];
 
-  [self fencePendingSaveWithDeadline:deadline];
+  if (![self.lifecycle fencePendingSaveWithDeadline:deadline error:error]) {
+    return NO;
+  }
   NSArray<NETunnelProviderManager *> *managers;
   if (![self loadAllManagers:&managers deadline:deadline error:error]) {
     return NO;
@@ -478,19 +558,19 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
   NETunnelProviderProtocol *protocol = [[NETunnelProviderProtocol alloc] init];
   protocol.providerBundleIdentifier = self.providerBundleIdentifier;
   protocol.serverAddress = uri.host;
-  protocol.providerConfiguration = uri.providerConfiguration;
+  protocol.providerConfiguration = [uri providerConfigurationWithControlAddress:controlAddress];
   protocol.disconnectOnSleep = NO;
   manager.protocolConfiguration = protocol;
   manager.localizedDescription = FBSocks5TunnelDescription;
   manager.enabled = YES;
 
-  __block BOOL saveDone = NO;
+  __block volatile atomic_bool saveDone = false;
   __block NSError *saveError = nil;
   dispatch_semaphore_t saveSignal = dispatch_semaphore_create(0);
-  self.pendingSaveSignal = saveSignal;
+  self.lifecycle.pendingSaveSignal = saveSignal;
   [manager saveToPreferencesWithCompletionHandler:^(NSError *err) {
     saveError = err;
-    saveDone = YES;
+    atomic_store_explicit(&saveDone, true, memory_order_release);
     dispatch_semaphore_signal(saveSignal);
   }];
   // Keep re-attempting for as long as the alert is still up: a dispatched tap can be shed by the
@@ -500,41 +580,41 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
   // No MAX(..., 1.0) floor here: granting an already-exhausted request another second is
   // exactly the overshoot the caller's timeout is supposed to prevent.
   [[[[FBRunLoopSpinner new] timeout:deadline.timeIntervalSinceNow] interval:0.3] spinUntilTrue:^BOOL{
-    if (saveDone) {
+    if (atomic_load_explicit(&saveDone, memory_order_acquire)) {
       return YES;
     }
-    if ([self tapConsentButtonWithLabels:labels]) {
+    if ([self tapConsentButtonWithLabels:labels deadline:deadline]) {
       consentTapped = YES;
     }
     return NO;
   }];
-  if (!saveDone) {
-    return FBSocks5Fail(error, FBSocks5TunnelManagerErrorNotAuthorized,
+  if (!atomic_load_explicit(&saveDone, memory_order_acquire)) {
+    return FBSocks5Fail(error, FBSocks5TunnelManagerSaveFailureCode(NO),
                         [NSString stringWithFormat:
                          @"Timed out saving the VPN configuration. The consent alert was %@; "
                          "pass 'consentButtonLabels' if the device language is not English, and note that "
                          "devices with a passcode cannot confirm the VPN consent automatically",
                          consentTapped ? @"confirmed" : @"not confirmed"]);
   }
-  self.pendingSaveSignal = nil;
+  self.lifecycle.pendingSaveSignal = nil;
   if (nil != saveError) {
-    return FBSocks5Fail(error, FBSocks5TunnelManagerErrorNotAuthorized,
+    return FBSocks5Fail(error, FBSocks5TunnelManagerSaveFailureCode(YES),
                         [NSString stringWithFormat:@"The VPN configuration was not authorized: %@",
                          saveError.localizedDescription]);
   }
 
   // A freshly saved configuration must be re-loaded before the tunnel can be started.
-  __block BOOL reloadDone = NO;
+  __block volatile atomic_bool reloadDone = false;
   __block NSError *reloadError = nil;
   [manager loadFromPreferencesWithCompletionHandler:^(NSError *err) {
     reloadError = err;
-    reloadDone = YES;
+    atomic_store_explicit(&reloadDone, true, memory_order_release);
   }];
   [[[[FBRunLoopSpinner new] timeout:FBSocks5RemainingTimeout(deadline, FBSocks5PreferencesTimeout)] interval:0.05] spinUntilTrue:^BOOL{
-    return reloadDone;
+    return atomic_load_explicit(&reloadDone, memory_order_acquire);
   }];
   // Same distinction as loadAllManagers:deadline:error: above.
-  if (!reloadDone) {
+  if (!atomic_load_explicit(&reloadDone, memory_order_acquire)) {
     return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
                         @"Timed out reloading the saved VPN configuration");
   }
@@ -544,8 +624,16 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
                          reloadError.localizedDescription]);
   }
 
+  if (deadline.timeIntervalSinceNow <= 0) {
+    return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
+                        @"Timed out before the SOCKS5 tunnel could start");
+  }
+  NSDictionary<NSString *, NSObject *> *startOptions = @{
+    FBSocks5OptionStartupDeadline: @(deadline.timeIntervalSinceReferenceDate),
+  };
   NSError *startError;
-  if (![(NETunnelProviderSession *)manager.connection startVPNTunnelWithOptions:nil andReturnError:&startError]) {
+  if (![(NETunnelProviderSession *)manager.connection startVPNTunnelWithOptions:startOptions
+                                                                 andReturnError:&startError]) {
     return FBSocks5Fail(error, FBSocks5TunnelManagerErrorInternal,
                         [NSString stringWithFormat:@"Cannot start the SOCKS5 tunnel: %@",
                          startError.localizedDescription]);
@@ -556,14 +644,14 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
   __block BOOL startRejected = NO;
   __block BOOL leftIdle = NO;
   BOOL connected = [[[[FBRunLoopSpinner new] timeout:deadline.timeIntervalSinceNow] interval:0.2] spinUntilTrue:^BOOL{
-    NEVPNStatus status = manager.connection.status;
-    if (status == NEVPNStatusConnected) {
+    NEVPNStatus currentStatus = manager.connection.status;
+    if (currentStatus == NEVPNStatusConnected) {
       return YES;
     }
     // The session can still read as disconnected for an instant after startVPNTunnel, so only
     // treat that as terminal once it has actually entered a starting state. Reasserting still
     // counts as in-flight; only a settled stop is terminal.
-    if (status != NEVPNStatusDisconnected && status != NEVPNStatusInvalid) {
+    if (currentStatus != NEVPNStatusDisconnected && currentStatus != NEVPNStatusInvalid) {
       leftIdle = YES;
     } else if (leftIdle) {
       startRejected = YES;
@@ -592,9 +680,14 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
 
 - (nullable NSDictionary<NSString *, id> *)disconnectWithError:(NSError **)error
 {
+  NSDictionary<NSString *, id> *unavailableSnapshot =
+    FBSocks5TunnelManagerDisconnectedStatsIfExtensionUnavailable(NSBundle.mainBundle);
+  if (nil != unavailableSnapshot) {
+    return unavailableSnapshot;
+  }
   __block NSDictionary<NSString *, id> *snapshot = nil;
   __block NSError *localError = nil;
-  [self performLocked:^{
+  [self.lifecycle performLocked:^{
     if ([self lockedDisconnectWithError:&localError]) {
       snapshot = [self lockedStatsDictionary];
     }
@@ -609,7 +702,9 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
 {
   // Without this a disconnect racing a timed-out connect could load nothing, or load a duplicate
   // that is not the tunnel actually running, and report success while the VPN stayed up.
-  [self fencePendingSaveWithDeadline:nil];
+  if (![self.lifecycle fencePendingSaveWithDeadline:nil error:error]) {
+    return NO;
+  }
   NSArray<NETunnelProviderManager *> *managers;
   if (![self loadAllManagers:&managers deadline:nil error:error]) {
     return NO;
@@ -637,7 +732,7 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
 - (NSDictionary<NSString *, id> *)statsDictionary
 {
   __block NSDictionary<NSString *, id> *snapshot = nil;
-  [self performLocked:^{
+  [self.lifecycle performLocked:^{
     snapshot = [self lockedStatsDictionary];
   }];
   return snapshot;
@@ -680,7 +775,7 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
   }
   NETunnelProviderSession *session = (NETunnelProviderSession *)manager.connection;
   __block NSDictionary *counters = nil;
-  __block BOOL done = NO;
+  __block volatile atomic_bool done = false;
   NSError *messageError;
   BOOL sent = [session sendProviderMessage:(NSData *)[FBSocks5MsgStats dataUsingEncoding:NSUTF8StringEncoding]
                                returnError:&messageError
@@ -691,19 +786,21 @@ static NSTimeInterval FBSocks5RemainingTimeout(NSDate *_Nullable deadline, NSTim
                                                     error:nil];
       counters = [parsed isKindOfClass:NSDictionary.class] ? parsed : nil;
     }
-    done = YES;
+    atomic_store_explicit(&done, true, memory_order_release);
   }];
   if (sent) {
     [[[[FBRunLoopSpinner new] timeout:statsBudget] interval:0.05] spinUntilTrue:^BOOL{
-      return done;
+      return atomic_load_explicit(&done, memory_order_acquire);
     }];
   } else {
     [FBLogger logFmt:@"socks5/stats: cannot query the tunnel extension: %@", messageError.localizedDescription];
   }
-  // Counters stay zero when the extension cannot answer in time; stats polling must not fail.
+  // Counters stay zero when the extension cannot answer in time; do not read the result storage
+  // unless the acquire observed the callback's release publication.
+  NSDictionary *completedCounters = atomic_load_explicit(&done, memory_order_acquire) ? counters : nil;
   for (NSString *key in @[FBSocks5StatsKeyRxBytes, FBSocks5StatsKeyTxBytes,
                           FBSocks5StatsKeyRxPackets, FBSocks5StatsKeyTxPackets]) {
-    NSNumber *value = counters[key];
+    NSNumber *value = completedCounters[key];
     if ([value isKindOfClass:NSNumber.class]) {
       stats[key] = value;
     }

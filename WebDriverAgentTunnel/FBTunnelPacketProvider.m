@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <poll.h>
+#include <stdatomic.h>
 
 #import "FBSocks5TunnelProtocol.h"
 #import "FBTunFdFinder.h"
@@ -26,6 +27,8 @@ static NSError *FBTunnelError(NSString *message)
                          userInfo:@{NSLocalizedDescriptionKey: message}];
 }
 
+static NSString *_Nullable FBTunnelNormalizedIPAddress(NSString *_Nullable address, BOOL *isIPv6);
+
 // Resolves a proxy host to its literal IPs, IPv4 first (the engine's preferred family), each
 // family preserving resolver order, without duplicates. The engine must not resolve the host
 // itself: once the tunnel's DNS settings are active, an in-provider lookup would be routed
@@ -33,7 +36,7 @@ static NSError *FBTunnelError(NSString *message)
 // just the first per family, so the pre-flight can fail over to later A/AAAA records when the
 // first one is unreachable. An entry's family is recoverable from the literal itself (IPv6
 // literals contain ':').
-static NSArray<NSString *> *FBTunnelResolveHostAddresses(NSString *host)
+static NSArray<NSString *> *FBTunnelResolveHostAddressesBlocking(NSString *host)
 {
   struct addrinfo hints;
   memset(&hints, 0, sizeof(hints));
@@ -69,31 +72,191 @@ static NSArray<NSString *> *FBTunnelResolveHostAddresses(NSString *host)
   return [ipv4 arrayByAddingObjectsFromArray:ipv6];
 }
 
+static dispatch_queue_t FBTunnelResolverQueue(void)
+{
+  static dispatch_queue_t queue;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    queue = dispatch_queue_create("com.facebook.WebDriverAgent.socks5-resolver",
+                                  dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,
+                                                                          QOS_CLASS_UTILITY, 0));
+  });
+  return queue;
+}
+
+static NSArray<NSString *> *_Nullable FBTunnelResolveHostAddresses(NSString *host,
+                                                                   NSDate *deadline,
+                                                                   FBSocks5TunnelStartupFence *startupFence,
+                                                                   BOOL *completed)
+{
+  BOOL literalIsIPv6 = NO;
+  NSString *literal = FBTunnelNormalizedIPAddress(host, &literalIsIPv6);
+  if (nil != literal) {
+    *completed = YES;
+    return @[literal];
+  }
+  if (startupFence.isStopping || deadline.timeIntervalSinceNow <= 0) {
+    *completed = NO;
+    return nil;
+  }
+  __block NSArray<NSString *> *addresses = nil;
+  __block volatile atomic_bool cancelled = false;
+  dispatch_semaphore_t resolved = dispatch_semaphore_create(0);
+  dispatch_async(FBTunnelResolverQueue(), ^{
+    if (atomic_load_explicit(&cancelled, memory_order_acquire)) {
+      return;
+    }
+    @autoreleasepool {
+      NSArray<NSString *> *result = FBTunnelResolveHostAddressesBlocking(host);
+      if (atomic_load_explicit(&cancelled, memory_order_acquire)) {
+        return;
+      }
+      addresses = result;
+      dispatch_semaphore_signal(resolved);
+    }
+  });
+  if (![startupFence waitForSignal:resolved beforeDate:deadline]) {
+    atomic_store_explicit(&cancelled, true, memory_order_release);
+    *completed = NO;
+    return nil;
+  }
+  *completed = YES;
+  return addresses;
+}
+
+static NSString *_Nullable FBTunnelNormalizedIPAddress(NSString *_Nullable address, BOOL *isIPv6)
+{
+  if (0 == address.length) {
+    return nil;
+  }
+  NSString *candidate = address;
+  NSRange scopeSeparator = [candidate rangeOfString:@"%"];
+  if (NSNotFound != scopeSeparator.location) {
+    candidate = [candidate substringToIndex:scopeSeparator.location];
+  }
+  struct in_addr ipv4;
+  if (1 == inet_pton(AF_INET, candidate.UTF8String, &ipv4)) {
+    *isIPv6 = NO;
+    return candidate;
+  }
+  struct in6_addr ipv6;
+  if (1 == inet_pton(AF_INET6, candidate.UTF8String, &ipv6)) {
+    *isIPv6 = YES;
+    return candidate;
+  }
+  return nil;
+}
+
 /// How long the pre-flight SOCKS5 handshake may take before the proxy counts as unreachable.
 static const NSTimeInterval FBTunnelProbeTimeout = 8.0;
+/// Poll in short slices so stop requests cancel an in-flight connect or handshake promptly.
+static const NSTimeInterval FBTunnelProbePollInterval = 0.1;
 /// Grace period for the engine to fail its own initialization before startup is declared good.
 static const NSTimeInterval FBTunnelEngineSettleTimeout = 0.75;
 
-static BOOL FBTunnelSetSocketTimeout(int fd, NSTimeInterval seconds)
+typedef NS_ENUM(NSUInteger, FBTunnelProbeIOResult) {
+  FBTunnelProbeIOResultSuccess,
+  FBTunnelProbeIOResultTransportFailure,
+  FBTunnelProbeIOResultCandidateTimeout,
+  FBTunnelProbeIOResultStartupTimeout,
+  FBTunnelProbeIOResultStopped,
+};
+
+static FBTunnelProbeIOResult FBTunnelWaitForSocket(int fd, short events,
+                                                   NSDate *candidateDeadline,
+                                                   NSDate *startupDeadline,
+                                                   FBSocks5TunnelStartupFence *startupFence)
 {
-  struct timeval tv;
-  tv.tv_sec = (time_t)seconds;
-  tv.tv_usec = (suseconds_t)((seconds - (NSTimeInterval)tv.tv_sec) * 1000000);
-  return 0 == setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv))
-      && 0 == setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+  while (YES) {
+    if (startupFence.isStopping) {
+      return FBTunnelProbeIOResultStopped;
+    }
+    NSDate *now = [NSDate date];
+    NSTimeInterval startupRemaining = [startupDeadline timeIntervalSinceDate:now];
+    if (startupRemaining <= 0) {
+      return FBTunnelProbeIOResultStartupTimeout;
+    }
+    NSTimeInterval candidateRemaining = [candidateDeadline timeIntervalSinceDate:now];
+    if (candidateRemaining <= 0) {
+      return FBTunnelProbeIOResultCandidateTimeout;
+    }
+    NSTimeInterval wait = MIN(FBTunnelProbePollInterval,
+                              MIN(startupRemaining, candidateRemaining));
+    struct pollfd pfd;
+    memset(&pfd, 0, sizeof(pfd));
+    pfd.fd = fd;
+    pfd.events = events;
+    int result = poll(&pfd, 1, MAX(1, (int)(wait * 1000)));
+    if (result > 0) {
+      return FBTunnelProbeIOResultSuccess;
+    }
+    if (result < 0 && EINTR != errno) {
+      return FBTunnelProbeIOResultTransportFailure;
+    }
+  }
 }
 
-static BOOL FBTunnelReadFully(int fd, uint8_t *buffer, size_t length)
+static FBTunnelProbeIOResult FBTunnelWriteFully(int fd, const void *bytes, size_t length,
+                                                NSDate *candidateDeadline,
+                                                NSDate *startupDeadline,
+                                                FBSocks5TunnelStartupFence *startupFence)
 {
-  size_t got = 0;
-  while (got < length) {
-    ssize_t n = recv(fd, buffer + got, length - got, 0);
-    if (n <= 0) {
-      return NO;
+  size_t sent = 0;
+  while (sent < length) {
+    FBTunnelProbeIOResult waitResult = FBTunnelWaitForSocket(fd, POLLOUT, candidateDeadline,
+                                                             startupDeadline, startupFence);
+    if (FBTunnelProbeIOResultSuccess != waitResult) {
+      return waitResult;
     }
-    got += (size_t)n;
+    ssize_t count = send(fd, (const uint8_t *)bytes + sent, length - sent, 0);
+    if (count > 0) {
+      sent += (size_t)count;
+      continue;
+    }
+    if (count < 0 && (EINTR == errno || EAGAIN == errno || EWOULDBLOCK == errno)) {
+      continue;
+    }
+    return FBTunnelProbeIOResultTransportFailure;
   }
-  return YES;
+  return FBTunnelProbeIOResultSuccess;
+}
+
+static FBTunnelProbeIOResult FBTunnelReadFully(int fd, void *bytes, size_t length,
+                                               NSDate *candidateDeadline,
+                                               NSDate *startupDeadline,
+                                               FBSocks5TunnelStartupFence *startupFence)
+{
+  size_t received = 0;
+  while (received < length) {
+    FBTunnelProbeIOResult waitResult = FBTunnelWaitForSocket(fd, POLLIN, candidateDeadline,
+                                                             startupDeadline, startupFence);
+    if (FBTunnelProbeIOResultSuccess != waitResult) {
+      return waitResult;
+    }
+    ssize_t count = recv(fd, (uint8_t *)bytes + received, length - received, 0);
+    if (count > 0) {
+      received += (size_t)count;
+      continue;
+    }
+    if (count < 0 && (EINTR == errno || EAGAIN == errno || EWOULDBLOCK == errno)) {
+      continue;
+    }
+    return FBTunnelProbeIOResultTransportFailure;
+  }
+  return FBTunnelProbeIOResultSuccess;
+}
+
+static NSError *FBTunnelProbeError(FBTunnelProbeIOResult result, NSString *transportMessage,
+                                   BOOL *outRetryable)
+{
+  if (FBTunnelProbeIOResultStopped == result) {
+    return FBTunnelError(@"The tunnel was stopped while it was still starting up");
+  }
+  if (FBTunnelProbeIOResultStartupTimeout == result) {
+    return FBTunnelError(@"Timed out while starting the SOCKS5 tunnel");
+  }
+  *outRetryable = YES;
+  return FBTunnelError(transportMessage);
 }
 
 /**
@@ -105,18 +268,20 @@ static BOOL FBTunnelReadFully(int fd, uint8_t *buffer, size_t length)
  packet routed into the tunnel would be silently blackholed. Runs before the tunnel's network
  settings are applied, so it cannot be captured by the tunnel it is validating.
 
- `outUnreachable` is set when the failure happened before any SOCKS5 byte was exchanged
- (socket/connect failure): only those failures are worth retrying on another resolved address,
- while a protocol or credential rejection comes from the proxy itself and would repeat there.
+ `outRetryable` is set for transport failures (connect, timeout, or EOF) that may be specific to
+ one resolved backend. Protocol and credential rejections are terminal because the proxy itself
+ answered them and they should repeat on the other addresses for that service.
  */
 static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, uint16_t port,
                                               NSString *_Nullable user, NSString *_Nullable pass,
-                                              BOOL *outUnreachable)
+                                              NSDate *candidateDeadline, NSDate *startupDeadline,
+                                              FBSocks5TunnelStartupFence *startupFence,
+                                              BOOL *outRetryable)
 {
-  *outUnreachable = NO;
+  *outRetryable = NO;
   int fd = socket(isIPv6 ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
   if (fd < 0) {
-    *outUnreachable = YES;
+    *outRetryable = YES;
     return FBTunnelError(@"Cannot create a socket to probe the SOCKS5 proxy");
   }
   // A proxy that closes the connection mid-handshake makes send() raise SIGPIPE on Darwin,
@@ -124,14 +289,15 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
   // ignore, but that happens later - this probe runs before it, so opt out per socket.
   int noSigPipe = 1;
   setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, sizeof(noSigPipe));
-  FBTunnelSetSocketTimeout(fd, FBTunnelProbeTimeout);
 
-  // SO_RCVTIMEO/SO_SNDTIMEO do not bound connect(); a blocking connect to a silently filtered
-  // endpoint would hang for the system's SYN-retry window (~75s) - per candidate address, now
-  // that several may be probed. Connect non-blocking under the probe deadline instead, then
-  // restore blocking mode so the handshake keeps relying on the socket timeouts above.
+  // Keep the socket non-blocking throughout connect and handshake. Short poll slices make both
+  // the per-candidate budget and a concurrent stop request observable inside every I/O wait.
   int flags = fcntl(fd, F_GETFL, 0);
-  fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+  if (flags < 0 || 0 != fcntl(fd, F_SETFL, flags | O_NONBLOCK)) {
+    close(fd);
+    *outRetryable = YES;
+    return FBTunnelError(@"Cannot make the SOCKS5 probe socket non-blocking");
+  }
 
   int connected = -1;
   if (isIPv6) {
@@ -156,11 +322,9 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
     connected = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
   }
   if (0 != connected && EINPROGRESS == errno) {
-    struct pollfd pfd;
-    memset(&pfd, 0, sizeof(pfd));
-    pfd.fd = fd;
-    pfd.events = POLLOUT;
-    if (1 == poll(&pfd, 1, (int)(FBTunnelProbeTimeout * 1000))) {
+    FBTunnelProbeIOResult waitResult = FBTunnelWaitForSocket(fd, POLLOUT, candidateDeadline,
+                                                             startupDeadline, startupFence);
+    if (FBTunnelProbeIOResultSuccess == waitResult) {
       int socketError = 0;
       socklen_t errorLength = sizeof(socketError);
       if (0 == getsockopt(fd, SOL_SOCKET, SO_ERROR, &socketError, &errorLength) && 0 == socketError) {
@@ -169,17 +333,20 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
         errno = 0 != socketError ? socketError : ETIMEDOUT;
       }
     } else {
-      errno = ETIMEDOUT;
+      close(fd);
+      return FBTunnelProbeError(waitResult,
+                                [NSString stringWithFormat:@"Cannot reach the SOCKS5 proxy at %@:%u",
+                                 proxyIP, port],
+                                outRetryable);
     }
   }
   if (0 != connected) {
     int err = errno;
     close(fd);
-    *outUnreachable = YES;
+    *outRetryable = YES;
     return FBTunnelError([NSString stringWithFormat:
                           @"Cannot reach the SOCKS5 proxy at %@:%u: %s", proxyIP, port, strerror(err)]);
   }
-  fcntl(fd, F_SETFL, flags);
 
   // Mirror hev_socks5_client_write_auth_methods exactly: it always offers a single method -
   // username/password when BOTH fields are set, no-auth otherwise. Offering both here would let
@@ -192,15 +359,23 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
   greeting[1] = 1;
   greeting[2] = hasCredentials ? 0x02 : 0x00;
   const size_t greetingLength = sizeof(greeting);
-  if (send(fd, greeting, greetingLength, 0) != (ssize_t)greetingLength) {
+  FBTunnelProbeIOResult ioResult = FBTunnelWriteFully(fd, greeting, greetingLength,
+                                                      candidateDeadline, startupDeadline,
+                                                      startupFence);
+  if (FBTunnelProbeIOResultSuccess != ioResult) {
     close(fd);
-    return FBTunnelError(@"The SOCKS5 proxy closed the connection during the greeting");
+    return FBTunnelProbeError(ioResult,
+                              @"The SOCKS5 proxy closed the connection during the greeting",
+                              outRetryable);
   }
 
   uint8_t choice[2] = {0};
-  if (!FBTunnelReadFully(fd, choice, sizeof(choice))) {
+  ioResult = FBTunnelReadFully(fd, choice, sizeof(choice), candidateDeadline, startupDeadline,
+                               startupFence);
+  if (FBTunnelProbeIOResultSuccess != ioResult) {
     close(fd);
-    return FBTunnelError(@"The SOCKS5 proxy did not answer the greeting");
+    return FBTunnelProbeError(ioResult, @"The SOCKS5 proxy did not answer the greeting",
+                              outRetryable);
   }
   if (0x05 != choice[0]) {
     close(fd);
@@ -212,6 +387,14 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
     return FBTunnelError(hasCredentials
                          ? @"The SOCKS5 proxy rejected username/password authentication"
                          : @"The SOCKS5 proxy requires authentication, but the URI has no user AND password pair");
+  }
+  if (!FBSocks5TunnelAuthenticationMethodWasOffered(choice[1], hasCredentials)) {
+    close(fd);
+    if (0x02 == choice[1]) {
+      return FBTunnelError(@"The SOCKS5 proxy selected username/password authentication that the client did not offer");
+    }
+    return FBTunnelError([NSString stringWithFormat:
+                          @"The SOCKS5 proxy selected unsupported authentication method 0x%02x", choice[1]]);
   }
   if (0x02 == choice[1]) {
     NSData *userData = [user dataUsingEncoding:NSUTF8StringEncoding];
@@ -227,54 +410,115 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
     uint8_t passLength = (uint8_t)passData.length;
     [auth appendBytes:&passLength length:1];
     [auth appendData:passData];
-    if (send(fd, auth.bytes, auth.length, 0) != (ssize_t)auth.length) {
+    ioResult = FBTunnelWriteFully(fd, auth.bytes, auth.length, candidateDeadline, startupDeadline,
+                                  startupFence);
+    if (FBTunnelProbeIOResultSuccess != ioResult) {
       close(fd);
-      return FBTunnelError(@"The SOCKS5 proxy closed the connection during authentication");
+      return FBTunnelProbeError(ioResult,
+                                @"The SOCKS5 proxy closed the connection during authentication",
+                                outRetryable);
     }
     uint8_t authReply[2] = {0};
-    if (!FBTunnelReadFully(fd, authReply, sizeof(authReply))) {
+    ioResult = FBTunnelReadFully(fd, authReply, sizeof(authReply), candidateDeadline,
+                                 startupDeadline, startupFence);
+    if (FBTunnelProbeIOResultSuccess != ioResult) {
       close(fd);
-      return FBTunnelError(@"The SOCKS5 proxy did not answer the authentication request");
+      return FBTunnelProbeError(ioResult,
+                                @"The SOCKS5 proxy did not answer the authentication request",
+                                outRetryable);
     }
-    if (0x00 != authReply[1]) {
+    if (!FBSocks5TunnelUsernamePasswordAuthReplySucceeded(authReply[0], authReply[1])) {
       close(fd);
+      if (0x01 != authReply[0]) {
+        return FBTunnelError(@"The SOCKS5 proxy returned an invalid username/password authentication reply");
+      }
       return FBTunnelError(@"The SOCKS5 proxy rejected the configured credentials");
     }
-  } else if (0x00 != choice[1]) {
-    close(fd);
-    return FBTunnelError([NSString stringWithFormat:
-                          @"The SOCKS5 proxy selected unsupported authentication method 0x%02x", choice[1]]);
   }
   close(fd);
   return nil;
 }
 
 @interface FBTunnelPacketProvider ()
-@property (nonatomic, nullable) FBTunnelHevRunner *runner;
-/** Set once a stop was requested, so the engine's exit is not mistaken for a crash. */
-@property (atomic) BOOL isStopping;
+@property (atomic, nullable) FBTunnelHevRunner *runner;
+@property (nonatomic, strong) FBSocks5TunnelStartupFence *startupFence;
 @end
 
 @implementation FBTunnelPacketProvider
 
+- (FBSocks5TunnelStartupFence *)startupFence
+{
+  @synchronized (self) {
+    if (nil == _startupFence) {
+      _startupFence = [[FBSocks5TunnelStartupFence alloc] init];
+    }
+    return _startupFence;
+  }
+}
+
+- (void)finishStartupWithError:(nullable NSError *)error
+{
+  NSError *stoppedError = FBTunnelError(@"The tunnel was stopped while it was still starting up");
+  if ([self.startupFence finishStartupWithError:error stoppedError:stoppedError]) {
+    [self finishStopCleanup];
+  }
+}
+
+- (void)finishStopCleanup
+{
+  FBTunnelHevRunner *runner;
+  @synchronized (self) {
+    runner = self.runner;
+    self.runner = nil;
+  }
+
+  [runner stopAndWait:5.0];
+  FBSocks5TunnelStartupFence *startupFence = self.startupFence;
+  [self setTunnelNetworkSettings:nil completionHandler:^(NSError *_Nullable settingsError) {
+    if (nil != settingsError) {
+      NSLog(@"WebDriverAgentTunnel: failed to clear tunnel network settings during stop: %@",
+            settingsError.localizedDescription);
+    }
+    [startupFence finishStopCleanup];
+  }];
+}
+
 - (void)startTunnelWithOptions:(nullable NSDictionary<NSString *, NSObject *> *)options
              completionHandler:(void (^)(NSError *_Nullable))completionHandler
 {
+  FBSocks5TunnelStartupFence *startupFence = self.startupFence;
+  [startupFence beginStartupWithCompletion:completionHandler];
+  NSDate *startupDeadline = FBSocks5TunnelStartupDeadlineFromOptions(options, [NSDate date]);
   NETunnelProviderProtocol *protocol = (NETunnelProviderProtocol *)self.protocolConfiguration;
   NSDictionary *config = [protocol isKindOfClass:NETunnelProviderProtocol.class]
     ? protocol.providerConfiguration
     : nil;
   NSString *host = config[FBSocks5KeyHost];
   NSNumber *port = config[FBSocks5KeyPort];
+  BOOL controlIsIPv6 = NO;
+  NSString *controlAddress = FBTunnelNormalizedIPAddress(config[FBSocks5KeyControlAddress], &controlIsIPv6);
   BOOL remoteDNS = [config[FBSocks5KeyRemoteDNS] boolValue];
   if (0 == host.length || nil == port) {
-    completionHandler(FBTunnelError(@"The tunnel provider configuration is missing the proxy host/port"));
+    [self finishStartupWithError:FBTunnelError(@"The tunnel provider configuration is missing the proxy host/port")];
     return;
   }
 
-  NSArray<NSString *> *candidates = FBTunnelResolveHostAddresses(host);
+  BOOL resolutionCompleted = NO;
+  NSArray<NSString *> *candidates = FBTunnelResolveHostAddresses(host, startupDeadline,
+                                                                 startupFence, &resolutionCompleted);
+  if (!resolutionCompleted) {
+    NSError *resolutionError = startupFence.isStopping
+      ? FBTunnelError(@"The tunnel was stopped while it was still starting up")
+      : FBTunnelError(@"Timed out resolving the SOCKS5 proxy host");
+    [self finishStartupWithError:resolutionError];
+    return;
+  }
   if (0 == candidates.count) {
-    completionHandler(FBTunnelError([NSString stringWithFormat:@"Cannot resolve the SOCKS5 proxy host '%@'", host]));
+    [self finishStartupWithError:FBTunnelError([NSString stringWithFormat:@"Cannot resolve the SOCKS5 proxy host '%@'", host])];
+    return;
+  }
+  if (FBSocks5TunnelRemainingStartupTime(startupDeadline, [NSDate date], FBTunnelProbeTimeout) <= 0) {
+    [self finishStartupWithError:FBTunnelError(@"Timed out while starting the SOCKS5 tunnel")];
     return;
   }
   NSLog(@"WebDriverAgentTunnel: starting tunnel through %@:%@ (resolved %@, remoteDNS=%d)",
@@ -282,17 +526,31 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
 
   // Fail before any routes are installed, so an unreachable proxy or bad credentials surface as
   // a start error instead of a "connected" tunnel that drops every packet. Probing the resolved
-  // addresses in order gives the usual DNS failover: an unreachable endpoint moves on to the
-  // next record, while a protocol/credential rejection is answered by the proxy itself and
-  // fails immediately (it would repeat on every address of the same server).
+  // addresses in order gives the usual DNS failover: a connect/timeout/EOF transport failure
+  // moves on to the next record, while a protocol/credential rejection is answered by the proxy
+  // itself and fails immediately (it would repeat on every address of the same service).
   NSString *proxyIP = nil;
   BOOL proxyIsIPv6 = NO;
   NSError *probeError = nil;
   for (NSString *candidate in candidates) {
+    if (self.startupFence.isStopping) {
+      probeError = FBTunnelError(@"The tunnel was stopped while it was still starting up");
+      break;
+    }
+    NSDate *now = [NSDate date];
+    NSTimeInterval candidateBudget = FBSocks5TunnelRemainingStartupTime(startupDeadline, now,
+                                                                        FBTunnelProbeTimeout);
+    if (candidateBudget <= 0) {
+      probeError = FBTunnelError(@"Timed out while starting the SOCKS5 tunnel");
+      break;
+    }
+    NSDate *candidateDeadline = [now dateByAddingTimeInterval:candidateBudget];
     BOOL candidateIsIPv6 = [candidate containsString:@":"];
-    BOOL unreachable = NO;
+    BOOL retryable = NO;
     probeError = FBTunnelProbeSocks5(candidate, candidateIsIPv6, (uint16_t)port.unsignedIntValue,
-                                     config[FBSocks5KeyUser], config[FBSocks5KeyPass], &unreachable);
+                                     config[FBSocks5KeyUser], config[FBSocks5KeyPass],
+                                     candidateDeadline, startupDeadline, self.startupFence,
+                                     &retryable);
     if (nil == probeError) {
       proxyIP = candidate;
       proxyIsIPv6 = candidateIsIPv6;
@@ -300,13 +558,21 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
     }
     NSLog(@"WebDriverAgentTunnel: proxy pre-flight failed for %@: %@",
           candidate, probeError.localizedDescription);
-    if (!unreachable) {
+    if (!retryable) {
       break;
     }
   }
   if (nil == proxyIP) {
-    completionHandler(probeError);
+    [self finishStartupWithError:probeError];
     return;
+  }
+  if (self.startupFence.isStopping) {
+    [self finishStartupWithError:FBTunnelError(@"The tunnel was stopped while it was still starting up")];
+    return;
+  }
+
+  if (nil != controlAddress) {
+    NSLog(@"WebDriverAgentTunnel: preserving WDA control route to %@", controlAddress);
   }
 
   NEPacketTunnelNetworkSettings *settings =
@@ -314,10 +580,18 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
   NEIPv4Settings *ipv4 = [[NEIPv4Settings alloc] initWithAddresses:@[FBSocks5TunnelIPv4Address]
                                                        subnetMasks:@[FBSocks5TunnelIPv4Netmask]];
   ipv4.includedRoutes = @[NEIPv4Route.defaultRoute];
+  NSMutableArray<NEIPv4Route *> *excludedIPv4Routes = [NSMutableArray array];
   if (!proxyIsIPv6) {
     // The engine's own TCP connection to the proxy must not loop back into the tunnel.
-    ipv4.excludedRoutes = @[[[NEIPv4Route alloc] initWithDestinationAddress:proxyIP
-                                                                 subnetMask:@"255.255.255.255"]];
+    [excludedIPv4Routes addObject:[[NEIPv4Route alloc] initWithDestinationAddress:proxyIP
+                                                                         subnetMask:@"255.255.255.255"]];
+  }
+  if (nil != controlAddress && !controlIsIPv6 && ![controlAddress isEqualToString:proxyIP]) {
+    [excludedIPv4Routes addObject:[[NEIPv4Route alloc] initWithDestinationAddress:controlAddress
+                                                                         subnetMask:@"255.255.255.255"]];
+  }
+  if (excludedIPv4Routes.count > 0) {
+    ipv4.excludedRoutes = excludedIPv4Routes.copy;
   }
   settings.IPv4Settings = ipv4;
 
@@ -331,10 +605,18 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
   NEIPv6Settings *ipv6 = [[NEIPv6Settings alloc] initWithAddresses:@[FBSocks5TunnelIPv6Address]
                                               networkPrefixLengths:@[@(FBSocks5TunnelIPv6PrefixLength)]];
   ipv6.includedRoutes = @[NEIPv6Route.defaultRoute];
+  NSMutableArray<NEIPv6Route *> *excludedIPv6Routes = [NSMutableArray array];
   if (proxyIsIPv6) {
     // Same reasoning as the IPv4 exclusion: keep the engine's own dial out of its own tunnel.
-    ipv6.excludedRoutes = @[[[NEIPv6Route alloc] initWithDestinationAddress:proxyIP
-                                                       networkPrefixLength:@128]];
+    [excludedIPv6Routes addObject:[[NEIPv6Route alloc] initWithDestinationAddress:proxyIP
+                                                               networkPrefixLength:@128]];
+  }
+  if (nil != controlAddress && controlIsIPv6 && ![controlAddress isEqualToString:proxyIP]) {
+    [excludedIPv6Routes addObject:[[NEIPv6Route alloc] initWithDestinationAddress:controlAddress
+                                                               networkPrefixLength:@128]];
+  }
+  if (excludedIPv6Routes.count > 0) {
+    ipv6.excludedRoutes = excludedIPv6Routes.copy;
   }
   settings.IPv6Settings = ipv6;
   // socks5h: point DNS at hev's mapdns so queries become hostname-preserving CONNECTs.
@@ -352,16 +634,24 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
   [self setTunnelNetworkSettings:settings completionHandler:^(NSError *_Nullable settingsError) {
     __strong typeof(weakSelf) strongSelf = weakSelf;
     if (nil == strongSelf) {
-      completionHandler(FBTunnelError(@"The tunnel provider was deallocated during startup"));
+      NSError *deallocatedError = FBTunnelError(@"The tunnel provider was deallocated during startup");
+      NSError *stoppedError = FBTunnelError(@"The tunnel was stopped while it was still starting up");
+      if ([startupFence finishStartupWithError:deallocatedError stoppedError:stoppedError]) {
+        [startupFence finishStopCleanup];
+      }
       return;
     }
     if (nil != settingsError) {
-      completionHandler(settingsError);
+      [strongSelf finishStartupWithError:settingsError];
+      return;
+    }
+    if (strongSelf.startupFence.isStopping) {
+      [strongSelf finishStartupWithError:FBTunnelError(@"The tunnel was stopped while it was still starting up")];
       return;
     }
     int tunFd = FBTunnelFindTunFd();
     if (tunFd < 0) {
-      completionHandler(FBTunnelError(@"Cannot locate the utun file descriptor in the tunnel provider"));
+      [strongSelf finishStartupWithError:FBTunnelError(@"Cannot locate the utun file descriptor in the tunnel provider")];
       return;
     }
     // The engine must connect to the already probed address (see FBTunnelResolveHostAddresses).
@@ -390,30 +680,24 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
         shouldCancel = startupAcknowledged;
       }
       dispatch_semaphore_signal(settled);
-      if (!shouldCancel || nil == exitSelf || exitSelf.isStopping) {
+      if (!shouldCancel || nil == exitSelf || exitSelf.startupFence.isStopping) {
         return;
       }
       NSLog(@"WebDriverAgentTunnel: engine exited unexpectedly (code %d); cancelling the tunnel", exitCode);
       [exitSelf cancelTunnelWithError:
        FBTunnelError([NSString stringWithFormat:@"The SOCKS5 engine exited unexpectedly with code %d", exitCode])];
     };
-    // Publishing and starting the runner must be atomic against stopTunnelWithReason:. A stop
-    // that arrives while the probe or setTunnelNetworkSettings is still pending finds no runner
-    // to stop and completes; without this section the continuation would then start a late
-    // engine inside a provider the system already considers torn down. Under the lock exactly
-    // one path wins: either the stop already recorded isStopping and startup aborts before the
-    // engine exists, or the runner is published and started first and the stop finds it.
-    BOOL stoppedDuringStartup = NO;
-    @synchronized (strongSelf) {
-      if (strongSelf.isStopping) {
-        stoppedDuringStartup = YES;
-      } else {
+    // Publishing and starting the runner must be atomic against stopTunnelWithReason:. The
+    // startup fence either rejects this action after a stop request, or keeps stop cleanup
+    // deferred until startup hands ownership of the published runner back to the fence.
+    BOOL started = [strongSelf.startupFence performStartupActionIfNotStopping:^{
+      @synchronized (strongSelf) {
         strongSelf.runner = runner;
         [runner startWithConfigYAML:yaml tunFd:tunFd exitHandler:exitHandler];
       }
-    }
-    if (stoppedDuringStartup) {
-      completionHandler(FBTunnelError(@"The tunnel was stopped while it was still starting up"));
+    }];
+    if (!started) {
+      [strongSelf finishStartupWithError:FBTunnelError(@"The tunnel was stopped while it was still starting up")];
       return;
     }
     dispatch_semaphore_wait(settled, dispatch_time(DISPATCH_TIME_NOW,
@@ -427,11 +711,15 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
       }
     }
     if (startupFailed) {
-      strongSelf.runner = nil;
-      completionHandler(FBTunnelError(@"The SOCKS5 engine failed to start; check the proxy configuration"));
+      @synchronized (strongSelf) {
+        if (strongSelf.runner == runner) {
+          strongSelf.runner = nil;
+        }
+      }
+      [strongSelf finishStartupWithError:FBTunnelError(@"The SOCKS5 engine failed to start; check the proxy configuration")];
       return;
     }
-    completionHandler(nil);
+    [strongSelf finishStartupWithError:nil];
   }];
 }
 
@@ -439,17 +727,9 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
            completionHandler:(void (^)(void))completionHandler
 {
   NSLog(@"WebDriverAgentTunnel: stopping tunnel (reason %ld)", (long)reason);
-  FBTunnelHevRunner *runner;
-  // Atomic against the startup continuation (see startTunnelWithOptions:): after this section
-  // a startup that has not yet published its runner is guaranteed to observe isStopping and
-  // abort instead of starting a late engine.
-  @synchronized (self) {
-    self.isStopping = YES;
-    runner = self.runner;
-    self.runner = nil;
+  if ([self.startupFence requestStopWithCompletion:completionHandler]) {
+    [self finishStopCleanup];
   }
-  [runner stopAndWait:5.0];
-  completionHandler();
 }
 
 - (void)handleAppMessage:(NSData *)messageData

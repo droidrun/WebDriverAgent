@@ -7,7 +7,7 @@
 # cannot reach Runner.app/PlugIns through a regular embed build phase.
 # The extension target is built into BUILT_PRODUCTS_DIR via a target
 # dependency of WebDriverAgentRunner; this scheme post-action copies it
-# into Runner.app/PlugIns, fixes its bundle id to match the host app
+# into Runner.app/PlugIns, validates that its bundle id matches the host app
 # (extensions must be prefixed by the host's CFBundleIdentifier, which
 # Xcode suffixes with '.xctrunner') and re-signs inner-first.
 #
@@ -44,22 +44,21 @@ rm -rf "$APPEX_DST"
 mkdir -p "$RUNNER_APP/PlugIns"
 cp -R "$APPEX_SRC" "$APPEX_DST"
 
-# Extensions must carry a bundle id prefixed by the host app's. The host id is only final at
-# this point (Xcode appends '.xctrunner'; downstream tooling may override the prefix), so
-# always derive the appex id from the embedded Runner.app instead of trusting build settings.
+# Extensions must be provisioned with their final bundle id. Rewriting it after Xcode signs the
+# appex cannot update the embedded provisioning profile's application identifier, so fail the
+# build instead of producing a bundle that installd will reject.
 HOST_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$RUNNER_APP/Info.plist")
 WANT_ID="${HOST_ID}.tunnel"
 CURRENT_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APPEX_DST/Info.plist")
-ID_REWRITTEN=0
 if [ "$CURRENT_ID" != "$WANT_ID" ]; then
-    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $WANT_ID" "$APPEX_DST/Info.plist"
-    ID_REWRITTEN=1
+    echo "error: $APPEX_NAME was built as '$CURRENT_ID', expected '$WANT_ID'." >&2
+    echo "error: set WDA_PRODUCT_BUNDLE_IDENTIFIER to the runner's base bundle id before building." >&2
+    exit 1
 fi
 
-# Re-codesign since we modified the bundle after Xcode signed it: the appex first (its bundle
-# id may just have changed, so do NOT preserve the identifier), then the app so its seal covers
-# the new nested code. In a scheme post-action context Xcode's CODE_SIGN_* env vars are not
-# exposed, so discover the existing signing identity from the already-signed bundle.
+# Re-codesign the copied appex first, then the app so its seal covers the new nested code. In a
+# scheme post-action context Xcode's CODE_SIGN_* env vars are not exposed, so discover the
+# existing signing identity from the already-signed bundle.
 if [ -d "$RUNNER_APP/_CodeSignature" ]; then
     # Capture the signature info once. Piping codesign straight into
     # `awk ... exit` makes awk close the pipe early, killing codesign with
@@ -80,33 +79,8 @@ if [ -d "$RUNNER_APP/_CodeSignature" ]; then
         if ! codesign -d --entitlements - --xml "$APPEX_DST" > "$APPEX_ENTITLEMENTS_PLIST" 2>/dev/null; then
             : > "$APPEX_ENTITLEMENTS_PLIST"
         fi
-        if [ "$ID_REWRITTEN" = "1" ]; then
-            # The bundle id changed, so the signed entitlements' application-identifier must be
-            # regenerated to match it - preserving the stale entitlements makes installd reject
-            # the extension (identity no longer matches the bundle id). Rewrite the identifier in
-            # the extracted entitlements and re-sign with them.
-            if [ -s "$APPEX_ENTITLEMENTS_PLIST" ]; then
-                OLD_APP_ID=$(/usr/libexec/PlistBuddy -c "Print :application-identifier" "$APPEX_ENTITLEMENTS_PLIST" 2>/dev/null || true)
-                TEAM_ID="${OLD_APP_ID%%.*}"
-                if [ -n "$TEAM_ID" ] && [ "$TEAM_ID" != "$OLD_APP_ID" ]; then
-                    /usr/libexec/PlistBuddy -c "Set :application-identifier ${TEAM_ID}.${WANT_ID}" "$APPEX_ENTITLEMENTS_PLIST"
-                    codesign --force --sign "$EXISTING_IDENT" \
-                             --entitlements "$APPEX_ENTITLEMENTS_PLIST" "$APPEX_DST"
-                else
-                    # No application-identifier (e.g. simulator ad-hoc signing): nothing to fix up.
-                    codesign --force --sign "$EXISTING_IDENT" \
-                             --preserve-metadata=entitlements "$APPEX_DST"
-                fi
-            else
-                codesign --force --sign "$EXISTING_IDENT" "$APPEX_DST"
-            fi
-            echo "warning: appex bundle id was rewritten to $WANT_ID; the embedded provisioning" \
-                 "profile must cover that id with the packet-tunnel-provider entitlement," \
-                 "otherwise re-sign with a matching profile - see docs/socks5-tunnel.md"
-        else
-            codesign --force --sign "$EXISTING_IDENT" \
-                     --preserve-metadata=entitlements "$APPEX_DST"
-        fi
+        codesign --force --sign "$EXISTING_IDENT" \
+                 --preserve-metadata=identifier,entitlements "$APPEX_DST"
 
         # Xcode is not documented to propagate the UI-test target's CODE_SIGN_ENTITLEMENTS onto
         # the generated Runner.app. The host must hold the NetworkExtension entitlement for

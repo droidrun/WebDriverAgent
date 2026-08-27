@@ -13,11 +13,13 @@
 - (instancetype)initWithURL:(NSURL *)url
                       params:(NSDictionary<NSString *, NSString *> *)params
                         body:(NSData *)body
+               clientAddress:(nullable NSString *)clientAddress
 {
   if ((self = [super init])) {
     _url = url.copy;
     _params = params.copy;
     _body = body.copy;
+    _clientAddress = clientAddress.copy;
   }
   return self;
 }
