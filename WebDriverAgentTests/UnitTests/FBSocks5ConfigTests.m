@@ -7,6 +7,7 @@
  */
 
 #import <XCTest/XCTest.h>
+#import <NetworkExtension/NetworkExtension.h>
 
 #import "FBSocks5TunnelManager.h"
 #import "FBSocks5TunnelProtocol.h"
@@ -19,7 +20,13 @@
 - (BOOL)fencePendingSaveWithDeadline:(nullable NSDate *)deadline error:(NSError **)error;
 @end
 
-extern FBSocks5TunnelManagerError FBSocks5TunnelManagerSaveFailureCode(BOOL completed);
+typedef NS_ENUM(NSInteger, FBSocks5TunnelManagerSaveDisposition) {
+  FBSocks5TunnelManagerSaveDispositionRetryStale,
+  FBSocks5TunnelManagerSaveDispositionNotAuthorized,
+  FBSocks5TunnelManagerSaveDispositionInternal,
+};
+
+extern FBSocks5TunnelManagerSaveDisposition FBSocks5TunnelManagerSaveDispositionForError(NSError *error);
 extern NSDictionary<NSString *, id> *_Nullable FBSocks5TunnelManagerDisconnectedStatsIfExtensionUnavailable(NSBundle *bundle);
 
 @interface FBSocks5ConfigTests : XCTestCase
@@ -328,10 +335,44 @@ extern NSDictionary<NSString *, id> *_Nullable FBSocks5TunnelManagerDisconnected
   XCTAssertFalse(FBSocks5TunnelAuthenticationMethodWasOffered(0x01, YES));
 }
 
-- (void)testUnfinishedPreferencesSaveIsClassifiedAsTimeout
+- (void)testStalePreferencesSaveRequiresReloadAndRetry
 {
-  XCTAssertEqual(FBSocks5TunnelManagerSaveFailureCode(NO), FBSocks5TunnelManagerErrorTimeout);
-  XCTAssertEqual(FBSocks5TunnelManagerSaveFailureCode(YES), FBSocks5TunnelManagerErrorNotAuthorized);
+  NSError *stale = [NSError errorWithDomain:NEVPNErrorDomain
+                                       code:NEVPNErrorConfigurationStale
+                                   userInfo:nil];
+  NSError *sameCodeWrongDomain = [NSError errorWithDomain:@"test"
+                                                     code:NEVPNErrorConfigurationStale
+                                                 userInfo:nil];
+
+  XCTAssertEqual(FBSocks5TunnelManagerSaveDispositionForError(stale),
+                 FBSocks5TunnelManagerSaveDispositionRetryStale);
+  XCTAssertEqual(FBSocks5TunnelManagerSaveDispositionForError(sameCodeWrongDomain),
+                 FBSocks5TunnelManagerSaveDispositionInternal);
+}
+
+- (void)testOnlyPermissionFailuresAreClassifiedAsNotAuthorized
+{
+  NSError *permission = [NSError errorWithDomain:@"NEConfigurationErrorDomain"
+                                            code:10
+                                        userInfo:nil];
+  NSError *wrappedPermission = [NSError errorWithDomain:NEVPNErrorDomain
+                                                   code:NEVPNErrorConfigurationReadWriteFailed
+                                               userInfo:@{NSUnderlyingErrorKey: permission}];
+  NSError *readWrite = [NSError errorWithDomain:NEVPNErrorDomain
+                                           code:NEVPNErrorConfigurationReadWriteFailed
+                                       userInfo:nil];
+  NSError *invalid = [NSError errorWithDomain:NEVPNErrorDomain
+                                         code:NEVPNErrorConfigurationInvalid
+                                     userInfo:nil];
+
+  XCTAssertEqual(FBSocks5TunnelManagerSaveDispositionForError(permission),
+                 FBSocks5TunnelManagerSaveDispositionNotAuthorized);
+  XCTAssertEqual(FBSocks5TunnelManagerSaveDispositionForError(wrappedPermission),
+                 FBSocks5TunnelManagerSaveDispositionNotAuthorized);
+  XCTAssertEqual(FBSocks5TunnelManagerSaveDispositionForError(readWrite),
+                 FBSocks5TunnelManagerSaveDispositionInternal);
+  XCTAssertEqual(FBSocks5TunnelManagerSaveDispositionForError(invalid),
+                 FBSocks5TunnelManagerSaveDispositionInternal);
 }
 
 @end

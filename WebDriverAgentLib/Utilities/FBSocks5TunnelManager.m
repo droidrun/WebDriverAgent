@@ -8,6 +8,7 @@
 
 #import "FBSocks5TunnelManager.h"
 
+#include <errno.h>
 #import <stdatomic.h>
 
 #import "FBSocks5TunnelProtocol.h"
@@ -38,10 +39,46 @@ static BOOL FBSocks5TunnelExtensionEmbedded(NSBundle *bundle)
 }
 
 static const NSTimeInterval FBSocks5PreferencesTimeout = 10.0;
+static NSString *const FBSocks5NEVPNErrorDomain = @"NEVPNErrorDomain";
+static NSString *const FBSocks5NEConfigurationErrorDomain = @"NEConfigurationErrorDomain";
+static const NSInteger FBSocks5NEVPNErrorConfigurationStale = 4;
+static const NSInteger FBSocks5NEConfigurationErrorPermissionDenied = 10;
 
-FBSocks5TunnelManagerError FBSocks5TunnelManagerSaveFailureCode(BOOL completed)
+typedef NS_ENUM(NSInteger, FBSocks5TunnelManagerSaveDisposition) {
+  FBSocks5TunnelManagerSaveDispositionRetryStale,
+  FBSocks5TunnelManagerSaveDispositionNotAuthorized,
+  FBSocks5TunnelManagerSaveDispositionInternal,
+};
+
+static BOOL FBSocks5TunnelManagerErrorChainContainsPermissionFailure(NSError *error)
 {
-  return completed ? FBSocks5TunnelManagerErrorNotAuthorized : FBSocks5TunnelManagerErrorTimeout;
+  NSError *candidate = error;
+  for (NSUInteger depth = 0; nil != candidate && depth < 8; depth++) {
+    if (([candidate.domain isEqualToString:FBSocks5NEConfigurationErrorDomain]
+         && FBSocks5NEConfigurationErrorPermissionDenied == candidate.code)
+        || ([candidate.domain isEqualToString:NSPOSIXErrorDomain]
+            && (EACCES == candidate.code || EPERM == candidate.code))
+        || ([candidate.domain isEqualToString:NSCocoaErrorDomain]
+            && (NSFileReadNoPermissionError == candidate.code
+                || NSFileWriteNoPermissionError == candidate.code))) {
+      return YES;
+    }
+    id underlying = candidate.userInfo[NSUnderlyingErrorKey];
+    candidate = [underlying isKindOfClass:NSError.class] ? underlying : nil;
+  }
+  return NO;
+}
+
+FBSocks5TunnelManagerSaveDisposition FBSocks5TunnelManagerSaveDispositionForError(NSError *error)
+{
+  if ([error.domain isEqualToString:FBSocks5NEVPNErrorDomain]
+      && FBSocks5NEVPNErrorConfigurationStale == error.code) {
+    return FBSocks5TunnelManagerSaveDispositionRetryStale;
+  }
+  if (FBSocks5TunnelManagerErrorChainContainsPermissionFailure(error)) {
+    return FBSocks5TunnelManagerSaveDispositionNotAuthorized;
+  }
+  return FBSocks5TunnelManagerSaveDispositionInternal;
 }
 
 /**
@@ -247,6 +284,10 @@ static uint64_t FBSocks5NowMs(void)
 @property (nonatomic, nullable) NETunnelProviderManager *activeManager;
 /** Monotonic ms timestamp of the last consent tap dispatch; guards the re-attempt cooldown. */
 @property (nonatomic) uint64_t lastConsentTapMs;
+- (BOOL)reloadManager:(NETunnelProviderManager *)manager
+              deadline:(NSDate *)deadline
+               context:(NSString *)context
+                 error:(NSError **)error;
 @end
 
 @implementation FBSocks5TunnelManager
@@ -315,6 +356,37 @@ static uint64_t FBSocks5NowMs(void)
   }
   if (nil != outManagers) {
     *outManagers = managers ?: @[];
+  }
+  return YES;
+}
+
+- (BOOL)reloadManager:(NETunnelProviderManager *)manager
+              deadline:(NSDate *)deadline
+               context:(NSString *)context
+                 error:(NSError **)error
+{
+  NSTimeInterval budget = FBSocks5RemainingTimeout(deadline, FBSocks5PreferencesTimeout);
+  if (budget <= 0) {
+    return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
+                        [NSString stringWithFormat:@"Timed out %@", context]);
+  }
+  __block volatile atomic_bool reloadDone = false;
+  __block NSError *reloadError = nil;
+  [manager loadFromPreferencesWithCompletionHandler:^(NSError *err) {
+    reloadError = err;
+    atomic_store_explicit(&reloadDone, true, memory_order_release);
+  }];
+  [[[[FBRunLoopSpinner new] timeout:budget] interval:0.05] spinUntilTrue:^BOOL{
+    return atomic_load_explicit(&reloadDone, memory_order_acquire);
+  }];
+  if (!atomic_load_explicit(&reloadDone, memory_order_acquire)) {
+    return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
+                        [NSString stringWithFormat:@"Timed out %@", context]);
+  }
+  if (nil != reloadError) {
+    return FBSocks5Fail(error, FBSocks5TunnelManagerErrorInternal,
+                        [NSString stringWithFormat:@"Cannot %@: %@",
+                         context, reloadError.localizedDescription]);
   }
   return YES;
 }
@@ -564,64 +636,80 @@ static uint64_t FBSocks5NowMs(void)
   manager.localizedDescription = FBSocks5TunnelDescription;
   manager.enabled = YES;
 
-  __block volatile atomic_bool saveDone = false;
-  __block NSError *saveError = nil;
-  dispatch_semaphore_t saveSignal = dispatch_semaphore_create(0);
-  self.lifecycle.pendingSaveSignal = saveSignal;
-  [manager saveToPreferencesWithCompletionHandler:^(NSError *err) {
-    saveError = err;
-    atomic_store_explicit(&saveDone, true, memory_order_release);
-    dispatch_semaphore_signal(saveSignal);
-  }];
-  // Keep re-attempting for as long as the alert is still up: a dispatched tap can be shed by the
-  // system, so 'we dispatched one' is not evidence that it landed. tapConsentButtonWithLabels:
-  // paces the re-attempts itself and answers NO once the alert is gone.
   __block BOOL consentTapped = NO;
-  // No MAX(..., 1.0) floor here: granting an already-exhausted request another second is
-  // exactly the overshoot the caller's timeout is supposed to prevent.
-  [[[[FBRunLoopSpinner new] timeout:deadline.timeIntervalSinceNow] interval:0.3] spinUntilTrue:^BOOL{
-    if (atomic_load_explicit(&saveDone, memory_order_acquire)) {
-      return YES;
+  NSUInteger staleRetries = 0;
+  while (YES) {
+    if (deadline.timeIntervalSinceNow <= 0) {
+      return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
+                          @"Timed out before saving the VPN configuration");
     }
-    if ([self tapConsentButtonWithLabels:labels deadline:deadline]) {
-      consentTapped = YES;
+    __block volatile atomic_bool saveDone = false;
+    __block NSError *saveError = nil;
+    dispatch_semaphore_t saveSignal = dispatch_semaphore_create(0);
+    self.lifecycle.pendingSaveSignal = saveSignal;
+    [manager saveToPreferencesWithCompletionHandler:^(NSError *err) {
+      saveError = err;
+      atomic_store_explicit(&saveDone, true, memory_order_release);
+      dispatch_semaphore_signal(saveSignal);
+    }];
+    // Keep re-attempting for as long as the alert is still up: a dispatched tap can be shed by the
+    // system, so 'we dispatched one' is not evidence that it landed. tapConsentButtonWithLabels:
+    // paces the re-attempts itself and answers NO once the alert is gone.
+    // No MAX(..., 1.0) floor here: granting an already-exhausted request another second is
+    // exactly the overshoot the caller's timeout is supposed to prevent.
+    [[[[FBRunLoopSpinner new] timeout:deadline.timeIntervalSinceNow] interval:0.3] spinUntilTrue:^BOOL{
+      if (atomic_load_explicit(&saveDone, memory_order_acquire)) {
+        return YES;
+      }
+      if ([self tapConsentButtonWithLabels:labels deadline:deadline]) {
+        consentTapped = YES;
+      }
+      return NO;
+    }];
+    if (!atomic_load_explicit(&saveDone, memory_order_acquire)) {
+      return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
+                          [NSString stringWithFormat:
+                           @"Timed out saving the VPN configuration. The consent alert was %@; "
+                           "pass 'consentButtonLabels' if the device language is not English, and note that "
+                           "devices with a passcode cannot confirm the VPN consent automatically",
+                           consentTapped ? @"confirmed" : @"not confirmed"]);
     }
-    return NO;
-  }];
-  if (!atomic_load_explicit(&saveDone, memory_order_acquire)) {
-    return FBSocks5Fail(error, FBSocks5TunnelManagerSaveFailureCode(NO),
-                        [NSString stringWithFormat:
-                         @"Timed out saving the VPN configuration. The consent alert was %@; "
-                         "pass 'consentButtonLabels' if the device language is not English, and note that "
-                         "devices with a passcode cannot confirm the VPN consent automatically",
-                         consentTapped ? @"confirmed" : @"not confirmed"]);
-  }
-  self.lifecycle.pendingSaveSignal = nil;
-  if (nil != saveError) {
-    return FBSocks5Fail(error, FBSocks5TunnelManagerSaveFailureCode(YES),
-                        [NSString stringWithFormat:@"The VPN configuration was not authorized: %@",
-                         saveError.localizedDescription]);
+    self.lifecycle.pendingSaveSignal = nil;
+    if (nil == saveError) {
+      break;
+    }
+    FBSocks5TunnelManagerSaveDisposition disposition =
+      FBSocks5TunnelManagerSaveDispositionForError(saveError);
+    if (FBSocks5TunnelManagerSaveDispositionRetryStale == disposition && 0 == staleRetries) {
+      staleRetries++;
+      [FBLogger log:@"socks5/connect: VPN configuration became stale; reloading and retrying the save once"];
+      if (![self reloadManager:manager
+                      deadline:deadline
+                       context:@"reloading the stale VPN configuration"
+                         error:error]) {
+        return NO;
+      }
+      manager.protocolConfiguration = protocol;
+      manager.localizedDescription = FBSocks5TunnelDescription;
+      manager.enabled = YES;
+      continue;
+    }
+    FBSocks5TunnelManagerError code = FBSocks5TunnelManagerSaveDispositionNotAuthorized == disposition
+      ? FBSocks5TunnelManagerErrorNotAuthorized
+      : FBSocks5TunnelManagerErrorInternal;
+    NSString *prefix = FBSocks5TunnelManagerSaveDispositionNotAuthorized == disposition
+      ? @"The VPN configuration was not authorized"
+      : @"Cannot save the VPN configuration";
+    return FBSocks5Fail(error, code,
+                        [NSString stringWithFormat:@"%@: %@", prefix, saveError.localizedDescription]);
   }
 
   // A freshly saved configuration must be re-loaded before the tunnel can be started.
-  __block volatile atomic_bool reloadDone = false;
-  __block NSError *reloadError = nil;
-  [manager loadFromPreferencesWithCompletionHandler:^(NSError *err) {
-    reloadError = err;
-    atomic_store_explicit(&reloadDone, true, memory_order_release);
-  }];
-  [[[[FBRunLoopSpinner new] timeout:FBSocks5RemainingTimeout(deadline, FBSocks5PreferencesTimeout)] interval:0.05] spinUntilTrue:^BOOL{
-    return atomic_load_explicit(&reloadDone, memory_order_acquire);
-  }];
-  // Same distinction as loadAllManagers:deadline:error: above.
-  if (!atomic_load_explicit(&reloadDone, memory_order_acquire)) {
-    return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
-                        @"Timed out reloading the saved VPN configuration");
-  }
-  if (nil != reloadError) {
-    return FBSocks5Fail(error, FBSocks5TunnelManagerErrorInternal,
-                        [NSString stringWithFormat:@"Cannot reload the saved VPN configuration: %@",
-                         reloadError.localizedDescription]);
+  if (![self reloadManager:manager
+                  deadline:deadline
+                   context:@"reloading the saved VPN configuration"
+                     error:error]) {
+    return NO;
   }
 
   if (deadline.timeIntervalSinceNow <= 0) {

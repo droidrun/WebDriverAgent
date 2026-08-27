@@ -105,6 +105,11 @@ static BOOL FBSocks5URIHasExplicitPort(NSString *uriString)
     FBSocks5URISetError(error, @"The socks5 URI must include both a username and password, or neither");
     return nil;
   }
+  if ([user lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > UINT8_MAX
+      || [pass lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > UINT8_MAX) {
+    FBSocks5URISetError(error, @"The socks5 username and password must each be at most 255 UTF-8 bytes");
+    return nil;
+  }
 
   FBSocks5URI *uri = [[self alloc] init];
   uri.host = host;

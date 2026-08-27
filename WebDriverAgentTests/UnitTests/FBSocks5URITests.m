@@ -106,6 +106,26 @@
   }
 }
 
+- (void)testRejectsCredentialsAboveTheSocks5ByteLimit
+{
+  NSString *maxCredential = [@"a" stringByPaddingToLength:255 withString:@"a" startingAtIndex:0];
+  NSString *oversizedASCII = [maxCredential stringByAppendingString:@"a"];
+  NSString *oversizedUnicode = [@"é" stringByPaddingToLength:128 withString:@"é" startingAtIndex:0];
+  NSString *maxCredentialURI = [NSString stringWithFormat:@"socks5://%@:pass@proxy", maxCredential];
+
+  XCTAssertNotNil([FBSocks5URI parse:maxCredentialURI error:nil]);
+  for (NSString *bad in @[
+    [NSString stringWithFormat:@"socks5://%@:pass@proxy", oversizedASCII],
+    [NSString stringWithFormat:@"socks5://user:%@@proxy", oversizedASCII],
+    [NSString stringWithFormat:@"socks5://%@:pass@proxy", oversizedUnicode],
+  ]) {
+    NSError *error;
+    XCTAssertNil([FBSocks5URI parse:bad error:&error], @"'%@' should be rejected", bad);
+    XCTAssertNotNil(error);
+    XCTAssertTrue([error.localizedDescription containsString:@"255 UTF-8 bytes"], @"%@", error);
+  }
+}
+
 - (void)testParseErrorsDoNotExposeCredentials
 {
   NSDictionary<NSString *, NSString *> *invalidURIs = @{
