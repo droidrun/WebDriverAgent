@@ -38,6 +38,22 @@
                </EnvironmentBuildable>
             </ActionContent>
          </ExecutionAction>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Remove tunnel extension from default Runner.app"
+               scriptText = "&quot;${SRCROOT}/Scripts/remove-tunnel-extension.sh&quot;&#10;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "EEF988291C486603005CA669"
+                     BuildableName = "WebDriverAgentRunner.xctest"
+                     BlueprintName = "WebDriverAgentRunner"
+                     ReferencedContainer = "container:WebDriverAgent.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
       </PostActions>
       <BuildActionEntries>
          <BuildActionEntry

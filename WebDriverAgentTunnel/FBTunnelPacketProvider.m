@@ -13,6 +13,8 @@
 #include <netdb.h>
 #include <poll.h>
 #include <stdatomic.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 #import "FBSocks5TunnelProtocol.h"
 #import "FBTunFdFinder.h"
@@ -26,8 +28,6 @@ static NSError *FBTunnelError(NSString *message)
                              code:1
                          userInfo:@{NSLocalizedDescriptionKey: message}];
 }
-
-static NSString *_Nullable FBTunnelNormalizedIPAddress(NSString *_Nullable address, BOOL *isIPv6);
 
 // Resolves a proxy host to its literal IPs, IPv4 first (the engine's preferred family), each
 // family preserving resolver order, without duplicates. The engine must not resolve the host
@@ -61,7 +61,8 @@ static NSArray<NSString *> *FBTunnelResolveHostAddressesBlocking(NSString *host)
     } else if (AF_INET6 == entry->ai_family) {
       struct sockaddr_in6 *addr = (struct sockaddr_in6 *)entry->ai_addr;
       if (NULL != inet_ntop(AF_INET6, &addr->sin6_addr, buffer, sizeof(buffer))) {
-        NSString *literal = [NSString stringWithUTF8String:buffer];
+        NSString *literal = FBSocks5IPv6AddressWithScope([NSString stringWithUTF8String:buffer],
+                                                         addr->sin6_scope_id);
         if (![ipv6 containsObject:literal]) {
           [ipv6 addObject:literal];
         }
@@ -90,7 +91,7 @@ static NSArray<NSString *> *_Nullable FBTunnelResolveHostAddresses(NSString *hos
                                                                    BOOL *completed)
 {
   BOOL literalIsIPv6 = NO;
-  NSString *literal = FBTunnelNormalizedIPAddress(host, &literalIsIPv6);
+  NSString *literal = FBSocks5NormalizedIPAddress(host, &literalIsIPv6);
   if (nil != literal) {
     *completed = YES;
     return @[literal];
@@ -122,29 +123,6 @@ static NSArray<NSString *> *_Nullable FBTunnelResolveHostAddresses(NSString *hos
   }
   *completed = YES;
   return addresses;
-}
-
-static NSString *_Nullable FBTunnelNormalizedIPAddress(NSString *_Nullable address, BOOL *isIPv6)
-{
-  if (0 == address.length) {
-    return nil;
-  }
-  NSString *candidate = address;
-  NSRange scopeSeparator = [candidate rangeOfString:@"%"];
-  if (NSNotFound != scopeSeparator.location) {
-    candidate = [candidate substringToIndex:scopeSeparator.location];
-  }
-  struct in_addr ipv4;
-  if (1 == inet_pton(AF_INET, candidate.UTF8String, &ipv4)) {
-    *isIPv6 = NO;
-    return candidate;
-  }
-  struct in6_addr ipv6;
-  if (1 == inet_pton(AF_INET6, candidate.UTF8String, &ipv6)) {
-    *isIPv6 = YES;
-    return candidate;
-  }
-  return nil;
 }
 
 /// How long the pre-flight SOCKS5 handshake may take before the proxy counts as unreachable.
@@ -305,10 +283,14 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
     memset(&addr, 0, sizeof(addr));
     addr.sin6_family = AF_INET6;
     addr.sin6_port = htons(port);
-    if (1 != inet_pton(AF_INET6, proxyIP.UTF8String, &addr.sin6_addr)) {
+    NSString *literal = nil;
+    NSUInteger scopeID = 0;
+    if (!FBSocks5ParseIPv6Address(proxyIP, &literal, &scopeID)
+        || 1 != inet_pton(AF_INET6, literal.UTF8String, &addr.sin6_addr)) {
       close(fd);
       return FBTunnelError(@"Cannot parse the resolved SOCKS5 proxy address");
     }
+    addr.sin6_scope_id = (uint32_t)scopeID;
     connected = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
   } else {
     struct sockaddr_in addr;
@@ -472,7 +454,10 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
     self.runner = nil;
   }
 
-  [runner stopAndWait:5.0];
+  if (nil != runner && ![runner stopAndWait:5.0]) {
+    NSLog(@"WebDriverAgentTunnel: HEV did not stop within five seconds; terminating the extension process");
+    _exit(EXIT_FAILURE);
+  }
   FBSocks5TunnelStartupFence *startupFence = self.startupFence;
   [self setTunnelNetworkSettings:nil completionHandler:^(NSError *_Nullable settingsError) {
     if (nil != settingsError) {
@@ -496,7 +481,7 @@ static NSError *_Nullable FBTunnelProbeSocks5(NSString *proxyIP, BOOL isIPv6, ui
   NSString *host = config[FBSocks5KeyHost];
   NSNumber *port = config[FBSocks5KeyPort];
   BOOL controlIsIPv6 = NO;
-  NSString *controlAddress = FBTunnelNormalizedIPAddress(config[FBSocks5KeyControlAddress], &controlIsIPv6);
+  NSString *controlAddress = FBSocks5NormalizedIPAddress(config[FBSocks5KeyControlAddress], &controlIsIPv6);
   BOOL remoteDNS = [config[FBSocks5KeyRemoteDNS] boolValue];
   if (0 == host.length || nil == port) {
     [self finishStartupWithError:FBTunnelError(@"The tunnel provider configuration is missing the proxy host/port")];

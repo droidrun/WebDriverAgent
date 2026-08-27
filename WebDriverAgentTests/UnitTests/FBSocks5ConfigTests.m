@@ -9,6 +9,8 @@
 #import <XCTest/XCTest.h>
 #import <NetworkExtension/NetworkExtension.h>
 
+#include <net/if.h>
+
 #import "FBSocks5TunnelManager.h"
 #import "FBSocks5TunnelProtocol.h"
 #import "FBSocks5URI.h"
@@ -101,6 +103,33 @@ extern NSDictionary<NSString *, id> *_Nullable FBSocks5TunnelManagerDisconnected
 
   NSDictionary<NSString *, id> *config = [uri providerConfigurationWithControlAddress:@"192.0.2.20"];
   XCTAssertEqualObjects(config[FBSocks5KeyControlAddress], @"192.0.2.20");
+}
+
+- (void)testScopedIPv6AddressPreservesAndTranslatesItsZone
+{
+  unsigned int loopbackScope = if_nametoindex("lo0");
+  XCTAssertNotEqual(loopbackScope, 0u);
+
+  BOOL isIPv6 = NO;
+  NSString *normalized = FBSocks5NormalizedIPAddress(@"fe80::1%lo0", &isIPv6);
+  NSString *literal = nil;
+  NSUInteger scopeID = 0;
+
+  XCTAssertTrue(isIPv6);
+  XCTAssertNotNil(normalized);
+  XCTAssertTrue(FBSocks5ParseIPv6Address(normalized, &literal, &scopeID));
+  XCTAssertEqualObjects(literal, @"fe80::1");
+  XCTAssertEqual(scopeID, loopbackScope);
+
+  NSString *numeric = [NSString stringWithFormat:@"fe80::2%%%u", loopbackScope];
+  XCTAssertTrue(FBSocks5ParseIPv6Address(numeric, &literal, &scopeID));
+  XCTAssertEqualObjects(literal, @"fe80::2");
+  XCTAssertEqual(scopeID, loopbackScope);
+
+  NSString *resolved = FBSocks5IPv6AddressWithScope(@"fe80::3", loopbackScope);
+  XCTAssertTrue(FBSocks5ParseIPv6Address(resolved, &literal, &scopeID));
+  XCTAssertEqualObjects(literal, @"fe80::3");
+  XCTAssertEqual(scopeID, loopbackScope);
 }
 
 #pragma mark - Tunnel extension presence

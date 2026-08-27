@@ -110,6 +110,13 @@ static BOOL FBSocks5URIHasExplicitPort(NSString *uriString)
     FBSocks5URISetError(error, @"The socks5 username and password must each be at most 255 UTF-8 bytes");
     return nil;
   }
+  NSMutableCharacterSet *forbiddenCredentialCharacters = [NSCharacterSet.controlCharacterSet mutableCopy];
+  [forbiddenCredentialCharacters formUnionWithCharacterSet:NSCharacterSet.newlineCharacterSet];
+  if ((nil != user && [user rangeOfCharacterFromSet:forbiddenCredentialCharacters].location != NSNotFound)
+      || (nil != pass && [pass rangeOfCharacterFromSet:forbiddenCredentialCharacters].location != NSNotFound)) {
+    FBSocks5URISetError(error, @"The socks5 username and password must not contain control characters");
+    return nil;
+  }
 
   FBSocks5URI *uri = [[self alloc] init];
   uri.host = host;

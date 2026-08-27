@@ -33,6 +33,9 @@ NS_ASSUME_NONNULL_BEGIN
 /**
  Asks the engine to quit and waits for the engine thread to exit.
 
+ A timed-out quit request may still be blocked inside hev's process-global state. The caller must
+ terminate the extension process before starting another engine generation when this returns NO.
+
  @param timeout maximum time in seconds to wait for the engine thread
  @return YES when the engine stopped within the timeout
  */

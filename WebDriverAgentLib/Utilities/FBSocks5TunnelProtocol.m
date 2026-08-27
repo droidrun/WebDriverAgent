@@ -8,6 +8,11 @@
 
 #import "FBSocks5TunnelProtocol.h"
 
+#include <arpa/inet.h>
+#include <errno.h>
+#include <net/if.h>
+#include <stdlib.h>
+
 NSString *const FBSocks5KeyHost = @"host";
 NSString *const FBSocks5KeyPort = @"port";
 NSString *const FBSocks5KeyUser = @"user";
@@ -64,6 +69,84 @@ BOOL FBSocks5TunnelUsernamePasswordAuthReplySucceeded(uint8_t version, uint8_t s
 BOOL FBSocks5TunnelAuthenticationMethodWasOffered(uint8_t method, BOOL hasCredentials)
 {
   return 0x00 == method || (hasCredentials && 0x02 == method);
+}
+
+BOOL FBSocks5ParseIPv6Address(NSString *address, NSString **literal, NSUInteger *scopeID)
+{
+  NSRange separator = [address rangeOfString:@"%" options:NSBackwardsSearch];
+  NSString *addressPart = NSNotFound == separator.location
+    ? address
+    : [address substringToIndex:separator.location];
+  NSUInteger parsedScope = 0;
+  if (NSNotFound != separator.location) {
+    NSString *zone = [address substringFromIndex:NSMaxRange(separator)];
+    if (0 == zone.length) {
+      return NO;
+    }
+    errno = 0;
+    char *end = NULL;
+    unsigned long numericScope = strtoul(zone.UTF8String, &end, 10);
+    if (0 == errno && NULL != end && '\0' == *end && numericScope > 0
+        && numericScope <= UINT32_MAX) {
+      parsedScope = (NSUInteger)numericScope;
+    } else {
+      parsedScope = (NSUInteger)if_nametoindex(zone.UTF8String);
+      if (0 == parsedScope) {
+        return NO;
+      }
+    }
+  }
+  struct in6_addr ipv6;
+  if (1 != inet_pton(AF_INET6, addressPart.UTF8String, &ipv6)) {
+    return NO;
+  }
+  if (nil != literal) {
+    *literal = addressPart;
+  }
+  if (NULL != scopeID) {
+    *scopeID = parsedScope;
+  }
+  return YES;
+}
+
+NSString *FBSocks5IPv6AddressWithScope(NSString *literal, NSUInteger scopeID)
+{
+  if (0 == scopeID) {
+    return literal;
+  }
+  char name[IF_NAMESIZE] = {0};
+  NSString *zone = NULL != if_indextoname((unsigned int)scopeID, name)
+    ? [NSString stringWithUTF8String:name]
+    : [NSString stringWithFormat:@"%lu", (unsigned long)scopeID];
+  return [NSString stringWithFormat:@"%@%%%@", literal, zone];
+}
+
+NSString *_Nullable FBSocks5NormalizedIPAddress(NSString *_Nullable address, BOOL *isIPv6)
+{
+  if (0 == address.length) {
+    return nil;
+  }
+  NSString *candidate = address;
+  if (candidate.length >= 2 && [candidate hasPrefix:@"["] && [candidate hasSuffix:@"]"]) {
+    candidate = [candidate substringWithRange:NSMakeRange(1, candidate.length - 2)];
+  }
+  struct in_addr ipv4;
+  if (NSNotFound == [candidate rangeOfString:@"%"].location
+      && 1 == inet_pton(AF_INET, candidate.UTF8String, &ipv4)) {
+    if (NULL != isIPv6) {
+      *isIPv6 = NO;
+    }
+    return candidate;
+  }
+  NSString *literal = nil;
+  NSUInteger scopeID = 0;
+  if (FBSocks5ParseIPv6Address(candidate, &literal, &scopeID)) {
+    if (NULL != isIPv6) {
+      *isIPv6 = YES;
+    }
+    return FBSocks5IPv6AddressWithScope(literal, scopeID);
+  }
+  return nil;
 }
 
 @interface FBSocks5TunnelStartupFence ()

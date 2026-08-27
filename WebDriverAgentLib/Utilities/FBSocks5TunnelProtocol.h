@@ -50,6 +50,12 @@ NSTimeInterval FBSocks5TunnelRemainingStartupTime(NSDate *deadline, NSDate *now,
 BOOL FBSocks5TunnelUsernamePasswordAuthReplySucceeded(uint8_t version, uint8_t status);
 /** Returns whether a proxy-selected authentication method was present in the client greeting. */
 BOOL FBSocks5TunnelAuthenticationMethodWasOffered(uint8_t method, BOOL hasCredentials);
+/** Normalizes an IPv4/IPv6 literal while preserving a valid IPv6 scope identifier. */
+NSString *_Nullable FBSocks5NormalizedIPAddress(NSString *_Nullable address, BOOL *isIPv6);
+/** Splits a scoped IPv6 literal into its address and numeric interface scope. */
+BOOL FBSocks5ParseIPv6Address(NSString *address, NSString **literal, NSUInteger *scopeID);
+/** Appends a resolver-provided numeric interface scope to an IPv6 literal. */
+NSString *FBSocks5IPv6AddressWithScope(NSString *literal, NSUInteger scopeID);
 
 /** sendProviderMessage verb (UTF-8 encoded) asking the extension for traffic counters. */
 extern NSString *const FBSocks5MsgStats;

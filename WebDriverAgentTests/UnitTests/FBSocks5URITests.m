@@ -66,6 +66,14 @@
   XCTAssertEqual(uri.port, 1080);
 }
 
+- (void)testPreservesIPv6ScopeIdentifier
+{
+  NSError *error;
+  FBSocks5URI *uri = [FBSocks5URI parse:@"socks5://[fe80::1%25en0]:1080" error:&error];
+  XCTAssertNotNil(uri, @"%@", error);
+  XCTAssertEqualObjects(uri.host, @"fe80::1%en0");
+}
+
 - (void)testRejectsUnsupportedScheme
 {
   for (NSString *bad in @[@"http://host", @"socks4://host", @"socks://host"]) {
@@ -123,6 +131,21 @@
     XCTAssertNil([FBSocks5URI parse:bad error:&error], @"'%@' should be rejected", bad);
     XCTAssertNotNil(error);
     XCTAssertTrue([error.localizedDescription containsString:@"255 UTF-8 bytes"], @"%@", error);
+  }
+}
+
+- (void)testRejectsYAMLControlCharactersInCredentials
+{
+  for (NSString *bad in @[
+    @"socks5://line%0Abreak:pass@proxy",
+    @"socks5://user:tab%09password@proxy",
+    @"socks5://user:nel%C2%85password@proxy",
+    @"socks5://user:separator%E2%80%A8password@proxy",
+  ]) {
+    NSError *error;
+    XCTAssertNil([FBSocks5URI parse:bad error:&error], @"'%@' should be rejected", bad);
+    XCTAssertNotNil(error);
+    XCTAssertTrue([error.localizedDescription containsString:@"control characters"], @"%@", error);
   }
 }
 
