@@ -35,6 +35,24 @@ static NSData * _Nonnull FBUTF8Data(NSString *string)
 // without limit. Far above anything a real request needs.
 static const NSUInteger FBMaxRequestHeaderSize = 64 * 1024;
 
+static NSString * _Nullable FBClientAddress(nw_connection_t client)
+{
+  nw_endpoint_t endpoint = nw_connection_copy_endpoint(client);
+  if (nil == endpoint) {
+    return nil;
+  }
+  const char *hostname = nw_endpoint_get_hostname(endpoint);
+  return NULL == hostname ? nil : [NSString stringWithUTF8String:hostname];
+}
+
+NSArray *FBStandaloneRequestIdentity(NSString *method,
+                                     NSString *pathAndQuery,
+                                     NSData *body,
+                                     NSString *_Nullable clientAddress)
+{
+  return @[method, pathAndQuery, body, clientAddress ?: NSNull.null];
+}
+
 // ASCII decimal digits only. -integerValue must not be used here: it maps garbage silently
 // ("bogus" -> 0, "12abc" -> 12), desyncing the framing of every later request on the connection.
 static BOOL FBParseContentLength(NSString *value, NSUInteger *outLength)
@@ -123,9 +141,9 @@ static BOOL FBParseContentLength(NSString *value, NSUInteger *outLength)
 // -processBufferForClient: from starting the next pipelined request, so responses on one
 // connection can't be written out of order. Guarded by @synchronized(self.connectionBuffers).
 @property (nonatomic, strong) NSMutableSet *connectionsAwaitingResponse;
-// Keyed by "METHOD path" - requests waiting on an already in-flight standalone request for that
-// endpoint. Guarded by @synchronized(self.standaloneWaiters).
-@property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableArray<FBPendingRequest *> *> *standaloneWaiters;
+// Keyed by an opaque method/path/body tuple - requests waiting on an already in-flight identical
+// standalone request. Guarded by @synchronized(self.standaloneWaiters).
+@property (nonatomic, strong) NSMutableDictionary<NSArray *, NSMutableArray<FBPendingRequest *> *> *standaloneWaiters;
 // Keyed by the "sessionID" path param - requests currently queued or executing for that session,
 // standalone or not (except DELETE /session itself - see -dispatchMethod:). See
 // -abandonPendingRequestsForSessionID:. Guarded by @synchronized(self.pendingSessionRequests).
@@ -612,7 +630,10 @@ static const NSUInteger FBMaxRecordedAbandonedSessions = 8;
     }
 
     NSURL *url = [NSURL URLWithString:path] ?: [NSURL URLWithString:@"/"];
-    RouteRequest *request = [[RouteRequest alloc] initWithURL:url params:params.copy body:body];
+    RouteRequest *request = [[RouteRequest alloc] initWithURL:url
+                                                       params:params.copy
+                                                         body:body
+                                                clientAddress:FBClientAddress(client)];
     RouteResponse *response = [RouteResponse new];
     [self applyDefaultHeadersToResponse:response];
 
@@ -732,8 +753,11 @@ static const NSUInteger FBMaxRecordedAbandonedSessions = 8;
                     pathAndQuery:(NSString *)pathAndQuery
                        sessionID:(nullable NSString *)sessionID
 {
-  // Includes the query string so requests with different params are never coalesced together.
-  NSString *key = [NSString stringWithFormat:@"%@ %@", method, pathAndQuery];
+  // Includes the query string, raw body bytes, and controller address so only semantically
+  // identical requests from the same controller are coalesced. Keeping these values opaque also
+  // avoids exposing request contents in queue labels.
+  NSArray *key = FBStandaloneRequestIdentity(method, pathAndQuery, request.body,
+                                             request.clientAddress);
   FBPendingRequest *waiter = [[FBPendingRequest alloc] initWithClient:client];
   if (nil != sessionID) {
     RouteResponse *abandonedResponse = [self trackPendingRequest:waiter forSessionID:sessionID];
@@ -758,7 +782,7 @@ static const NSUInteger FBMaxRecordedAbandonedSessions = 8;
     return;
   }
 
-  dispatch_queue_t queue = dispatch_queue_create(key.UTF8String, DISPATCH_QUEUE_SERIAL);
+  dispatch_queue_t queue = dispatch_queue_create("com.facebook.WebDriverAgent.standalone-route", DISPATCH_QUEUE_SERIAL);
   __weak typeof(self) weakSelf = self;
   dispatch_async(queue, ^{
     route.block(request, response);

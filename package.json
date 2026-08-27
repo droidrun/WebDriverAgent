@@ -25,6 +25,8 @@
     "Scripts/build.sh",
     "Scripts/embed-runner-icon.sh",
     "Scripts/embed-broadcast-extension.sh",
+    "Scripts/embed-tunnel-extension.sh",
+    "Scripts/build-hev-socks5-tunnel.sh",
     "Scripts/*.mjs",
     "Configurations",
     "PrivateHeaders",
@@ -32,6 +34,8 @@
     "WebDriverAgentBroadcast",
     "WebDriverAgentLib",
     "WebDriverAgentRunner",
+    "WebDriverAgentTunnel",
+    "ThirdParty/hev-socks5-tunnel",
     "WebDriverAgentTests",
     "XCTWebDriverAgentLib",
     "CHANGELOG.md"

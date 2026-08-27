@@ -37,6 +37,37 @@ NS_ASSUME_NONNULL_BEGIN
  */
 - (void)stopServing;
 
+/**
+ Runs a block that touches XCUI/XCTest state on the main thread, serialized through the
+ same automation funnel the main-queue-served routes use.
+
+ Routes marked `standalone` are served off the main queue, so they must not call
+ XCUI directly. Hopping straight to the main queue is not enough either: such a block
+ could be drained inside another handler's run-loop spin, which is exactly the
+ reentrancy the funnel exists to prevent. Going through the funnel first makes the
+ block wait for the in-flight automation request instead.
+
+ No-ops onto a direct call when already on the main thread (the caller is then already
+ inside the funnel), and skips the funnel hop when already running on it.
+
+ @param block The XCUI-touching work. Executed synchronously before this method returns.
+ */
++ (void)performAutomationBlockOnMainQueue:(NS_NOESCAPE dispatch_block_t)block;
+
+/**
+ Runs an XCUI/XCTest block through the automation funnel only if it can begin by `deadline`.
+
+ If the block is still queued when the deadline expires, it is cancelled and will not execute
+ later. Once execution has begun, this method preserves the synchronous contract and waits for
+ the block to finish.
+
+ @param block The XCUI-touching work.
+ @param deadline The latest date at which the queued block may begin executing.
+ @return YES if the block began execution, otherwise NO.
+ */
++ (BOOL)performAutomationBlockOnMainQueue:(dispatch_block_t)block
+                                beforeDate:(NSDate *)deadline;
+
 @end
 
 /**

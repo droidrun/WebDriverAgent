@@ -418,7 +418,7 @@ export class XcodeBuild {
         args.push(`DEVELOPMENT_TEAM=${this.xcodeOrgId}`, `CODE_SIGN_IDENTITY=${this.xcodeSigningId}`);
       }
       if (this.updatedWDABundleId) {
-        args.push(`PRODUCT_BUNDLE_IDENTIFIER=${this.updatedWDABundleId}`);
+        args.push(`WDA_PRODUCT_BUNDLE_IDENTIFIER=${this.updatedWDABundleId}`);
       }
     }
 

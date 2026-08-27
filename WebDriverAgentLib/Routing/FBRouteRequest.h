@@ -26,6 +26,9 @@ NS_ASSUME_NONNULL_BEGIN
 /*! Arguments sent with that request */
 @property (nonatomic, copy, readonly) NSDictionary *arguments;
 
+/*! Remote IP address of the HTTP client, when available */
+@property (nonatomic, copy, readonly, nullable) NSString *clientAddress;
+
 /*! Session associated with that request */
 @property (nonatomic, strong, readonly) FBSession *session;
 
@@ -33,6 +36,11 @@ NS_ASSUME_NONNULL_BEGIN
  Convenience constructor for request
  */
 + (instancetype)routeRequestWithURL:(NSURL *)URL parameters:(NSDictionary *)parameters arguments:(NSDictionary *)arguments;
+
++ (instancetype)routeRequestWithURL:(NSURL *)URL
+                         parameters:(NSDictionary *)parameters
+                          arguments:(NSDictionary *)arguments
+                      clientAddress:(nullable NSString *)clientAddress;
 
 @end
 

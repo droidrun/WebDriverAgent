@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, strong, readwrite) NSURL *URL;
 @property (nonatomic, copy, readwrite) NSDictionary *parameters;
 @property (nonatomic, copy, readwrite) NSDictionary *arguments;
+@property (nonatomic, copy, readwrite, nullable) NSString *clientAddress;
 @property (nonatomic, strong, readwrite) FBSession *session;
 @end
 

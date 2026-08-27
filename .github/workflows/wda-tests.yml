@@ -13,7 +13,12 @@ on:
       - 'PrivateHeaders/**'
       - 'Configurations/**'
       - 'WebDriverAgent.xcodeproj/**'
+      - 'WebDriverAgentTunnel/**'
+      - 'ThirdParty/**'
+      - '.gitmodules'
       - 'Scripts/build.sh'
+      - 'Scripts/build-hev-socks5-tunnel.sh'
+      - 'Scripts/embed-tunnel-extension.sh'
       - 'Fastlane/**'
       - 'Gemfile*'
       - '.github/workflows/wda-tests.yml'
@@ -57,6 +62,8 @@ jobs:
             {"name": "Generic_tvOS_Build_Min_Xcode", "vm_image": "${{ env.MIN_VM_IMAGE }}", "xcode_version": "${{ env.MIN_XCODE_VERSION }}", "action": "build", "target": "tv_runner", "sdk": "tv_sim", "dest": "tv_generic", "code_sign": "no"},
             {"name": "iOS_Build_Max_Xcode", "vm_image": "${{ env.MAX_VM_IMAGE }}", "xcode_version": "${{ env.MAX_XCODE_VERSION }}", "action": "build", "target": "runner", "sdk": "sim", "iphone_model": "${{ env.MAX_IPHONE_DEVICE_NAME }}", "ipad_model": "${{ env.MAX_IPAD_DEVICE_NAME }}", "ios_version": "${{ env.MAX_PLATFORM_VERSION }}"},
             {"name": "iOS_Build_Min_Xcode", "vm_image": "${{ env.MIN_VM_IMAGE }}", "xcode_version": "${{ env.MIN_XCODE_VERSION }}", "action": "build", "target": "runner", "sdk": "sim", "iphone_model": "${{ env.MIN_IPHONE_DEVICE_NAME }}", "ipad_model": "${{ env.MIN_IPAD_DEVICE_NAME }}", "ios_version": "${{ env.MIN_PLATFORM_VERSION }}"},
+            {"name": "iOS_Tunnel_Build_Max_Xcode", "vm_image": "${{ env.MAX_VM_IMAGE }}", "xcode_version": "${{ env.MAX_XCODE_VERSION }}", "action": "build", "target": "tunnel_runner", "sdk": "sim", "iphone_model": "${{ env.MAX_IPHONE_DEVICE_NAME }}", "ipad_model": "${{ env.MAX_IPAD_DEVICE_NAME }}", "ios_version": "${{ env.MAX_PLATFORM_VERSION }}"},
+            {"name": "iOS_Tunnel_Build_Min_Xcode", "vm_image": "${{ env.MIN_VM_IMAGE }}", "xcode_version": "${{ env.MIN_XCODE_VERSION }}", "action": "build", "target": "tunnel_runner", "sdk": "sim", "iphone_model": "${{ env.MIN_IPHONE_DEVICE_NAME }}", "ipad_model": "${{ env.MIN_IPAD_DEVICE_NAME }}", "ios_version": "${{ env.MIN_PLATFORM_VERSION }}"},
             {"name": "tvOS_Build_Max_Xcode", "vm_image": "${{ env.MAX_VM_IMAGE }}", "xcode_version": "${{ env.MAX_XCODE_VERSION }}", "action": "build", "target": "tv_runner", "sdk": "tv_sim", "tv_model": "${{ env.MAX_TV_DEVICE_NAME }}", "tv_version": "${{ env.MAX_TV_PLATFORM_VERSION }}"},
             {"name": "tvOS_Build_Min_Xcode", "vm_image": "${{ env.MIN_VM_IMAGE }}", "xcode_version": "${{ env.MIN_XCODE_VERSION }}", "action": "build", "target": "tv_runner", "sdk": "tv_sim", "dest": "tv", "tv_model": "${{ env.MIN_TV_DEVICE_NAME }}", "tv_version": "${{ env.MIN_TV_PLATFORM_VERSION }}"}
           ]
@@ -138,6 +145,11 @@ jobs:
         config: ${{ fromJSON(needs.build_matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Only the tunnel_runner matrix entries need ThirdParty/hev-socks5-tunnel
+          # (and its nested submodules); checking it out unconditionally keeps the
+          # shared build job simple.
+          submodules: recursive
       - uses: ./.github/actions/xcode-setup
         with:
           xcode_version: ${{ matrix.config.xcode_version }}

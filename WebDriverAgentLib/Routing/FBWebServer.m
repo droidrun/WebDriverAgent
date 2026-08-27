@@ -9,6 +9,7 @@
 #import "FBWebServer.h"
 
 #import "FBHTTPServer.h"
+#import <stdatomic.h>
 #import "FBMjpegServer.h"
 #import "FBTCPSocket.h"
 #if !TARGET_OS_WATCH
@@ -34,6 +35,9 @@
 
 static NSString *const FBServerURLBeginMarker = @"ServerURLHere->";
 static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
+
+/// Queue-specific marker used to detect that the caller already runs on the automation funnel.
+static const void *FBAutomationFunnelKey = &FBAutomationFunnelKey;
 
 @interface FBWebServer ()
 @property (nonatomic, strong) FBExceptionHandler *exceptionHandler;
@@ -118,12 +122,159 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
   }
 }
 
+/**
+ The funnel is process-wide rather than per-server instance so that off-main callers
+ (see performAutomationBlockOnMainQueue:) serialize against the very same queue the
+ route dispatch uses.
+ */
++ (dispatch_queue_t)automationFunnelQueue
+{
+  static dispatch_queue_t queue;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    queue = dispatch_queue_create("com.facebook.WebDriverAgent.automation-funnel", DISPATCH_QUEUE_SERIAL);
+    dispatch_queue_set_specific(queue, FBAutomationFunnelKey, (void *)FBAutomationFunnelKey, NULL);
+  });
+  return queue;
+}
+
++ (void)performAutomationBlockOnMainQueue:(NS_NOESCAPE dispatch_block_t)block
+{
+  if (NSThread.isMainThread) {
+    // Already inside funnel -> main, so re-entering either would deadlock.
+    block();
+    return;
+  }
+  __block NSException *blockException = nil;
+  if (NULL != dispatch_get_specific(FBAutomationFunnelKey)) {
+    dispatch_sync(dispatch_get_main_queue(), ^{
+      @try {
+        block();
+      } @catch (NSException *exception) {
+        blockException = exception;
+      }
+    });
+    if (nil != blockException) {
+      @throw blockException;
+    }
+    return;
+  }
+  dispatch_sync(self.automationFunnelQueue, ^{
+    dispatch_sync(dispatch_get_main_queue(), ^{
+      @try {
+        block();
+      } @catch (NSException *exception) {
+        blockException = exception;
+      }
+    });
+  });
+  if (nil != blockException) {
+    @throw blockException;
+  }
+}
+
++ (BOOL)performAutomationBlockOnMainQueue:(dispatch_block_t)block
+                                beforeDate:(NSDate *)deadline
+{
+  if (NSThread.isMainThread) {
+    if (deadline.timeIntervalSinceNow <= 0) {
+      return NO;
+    }
+    block();
+    return YES;
+  }
+  if (NULL != dispatch_get_specific(FBAutomationFunnelKey)) {
+    __block BOOL executed = NO;
+    __block NSException *blockException = nil;
+    dispatch_sync(dispatch_get_main_queue(), ^{
+      if (deadline.timeIntervalSinceNow <= 0) {
+        return;
+      }
+      executed = YES;
+      @try {
+        block();
+      } @catch (NSException *exception) {
+        blockException = exception;
+      }
+    });
+    if (nil != blockException) {
+      @throw blockException;
+    }
+    return executed;
+  }
+
+  enum {
+    FBAutomationBlockPending,
+    FBAutomationBlockExecuting,
+    FBAutomationBlockCancelled,
+    FBAutomationBlockFinished,
+  };
+  __block volatile atomic_int state = FBAutomationBlockPending;
+  __block NSException *blockException = nil;
+  dispatch_semaphore_t completion = dispatch_semaphore_create(0);
+  dispatch_async(self.automationFunnelQueue, ^{
+    @try {
+      if (atomic_load_explicit(&state, memory_order_acquire) == FBAutomationBlockCancelled) {
+        return;
+      }
+      dispatch_sync(dispatch_get_main_queue(), ^{
+        int expected = FBAutomationBlockPending;
+        if (deadline.timeIntervalSinceNow > 0
+            && atomic_compare_exchange_strong_explicit(&state, &expected,
+                                                       FBAutomationBlockExecuting,
+                                                       memory_order_acq_rel,
+                                                       memory_order_acquire)) {
+          @try {
+            block();
+          } @catch (NSException *exception) {
+            blockException = exception;
+          } @finally {
+            atomic_store_explicit(&state, FBAutomationBlockFinished, memory_order_release);
+          }
+        } else {
+          expected = FBAutomationBlockPending;
+          atomic_compare_exchange_strong_explicit(&state, &expected,
+                                                  FBAutomationBlockCancelled,
+                                                  memory_order_acq_rel,
+                                                  memory_order_acquire);
+        }
+      });
+    } @finally {
+      dispatch_semaphore_signal(completion);
+    }
+  });
+
+  NSTimeInterval budget = deadline.timeIntervalSinceNow;
+  long waitResult = budget <= 0
+    ? 1
+    : dispatch_semaphore_wait(completion, dispatch_time(DISPATCH_TIME_NOW,
+                                                        (int64_t)(budget * NSEC_PER_SEC)));
+  if (0 != waitResult) {
+    int expected = FBAutomationBlockPending;
+    if (atomic_compare_exchange_strong_explicit(&state, &expected,
+                                                FBAutomationBlockCancelled,
+                                                memory_order_acq_rel,
+                                                memory_order_acquire)) {
+      return NO;
+    }
+    if (atomic_load_explicit(&state, memory_order_acquire) == FBAutomationBlockCancelled) {
+      return NO;
+    }
+    dispatch_semaphore_wait(completion, DISPATCH_TIME_FOREVER);
+  }
+  BOOL finished = atomic_load_explicit(&state, memory_order_acquire) == FBAutomationBlockFinished;
+  if (finished && nil != blockException) {
+    @throw blockException;
+  }
+  return finished;
+}
+
 - (BOOL)startHTTPServer
 {
   self.server = [[FBHTTPServer alloc] init];
   // Serializes automation requests so at most one is ever in flight on the main queue; handlers
   // are invoked here and hop to main via dispatch_sync. See registerRouteHandlers:.
-  self.automationQueue = dispatch_queue_create("com.facebook.WebDriverAgent.automation-funnel", DISPATCH_QUEUE_SERIAL);
+  self.automationQueue = self.class.automationFunnelQueue;
   [self.server setRouteQueue:self.automationQueue];
   [self.server setDefaultHeader:@"Server" value:@"WebDriverAgent/1.0"];
   [self.server setDefaultHeader:@"Access-Control-Allow-Origin" value:@"*"];
@@ -294,6 +445,7 @@ static NSString *const FBServerURLEndMarker = @"<-ServerURLHere";
           routeRequestWithURL:request.url
           parameters:request.params
           arguments:arguments ?: @{}
+          clientAddress:request.clientAddress
         ];
 
         [FBLogger verboseLog:routeParams.description];

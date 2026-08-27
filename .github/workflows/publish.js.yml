@@ -88,6 +88,12 @@ jobs:
     runs-on: macos-15
     steps:
     - uses: actions/checkout@v7
+      with:
+        # The published npm package ships ThirdParty/hev-socks5-tunnel (see the
+        # 'files' list in package.json) so consumers can build the opt-in
+        # WebDriverAgentRunnerTunnel scheme; without the submodule the pack
+        # would silently omit the engine sources.
+        submodules: recursive
     - name: Use Node.js
       uses: actions/setup-node@v7
       with:

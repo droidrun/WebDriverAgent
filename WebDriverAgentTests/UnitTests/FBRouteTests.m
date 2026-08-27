@@ -14,6 +14,12 @@
 
 @class RouteResponse;
 
+extern BOOL FBSocks5ConnectTimeoutFromValue(id _Nullable value, NSTimeInterval *timeout);
+extern NSArray *FBStandaloneRequestIdentity(NSString *method,
+                                            NSString *pathAndQuery,
+                                            NSData *body,
+                                            NSString *_Nullable clientAddress);
+
 @interface FBHandlerMock : NSObject
 @property (nonatomic, assign) BOOL didCallSomeSelector;
 @end
@@ -143,6 +149,68 @@
   XCTAssertTrue(route.isStandalone);
 }
 
+- (void)testRequestDescriptionRedactsSocks5Credentials
+{
+  FBRouteRequest *request = [FBRouteRequest
+    routeRequestWithURL:[NSURL URLWithString:@"/mobilerun/socks5/connect"]
+    parameters:@{}
+    arguments:@{
+      @"uri": @"socks5://alice:secret@proxy.example.com:1080",
+      @"timeout": @5,
+    }];
+
+  NSString *description = request.description;
+  XCTAssertFalse([description containsString:@"alice"]);
+  XCTAssertFalse([description containsString:@"secret"]);
+  XCTAssertTrue([description containsString:@"proxy.example.com:1080"]);
+  XCTAssertTrue([description containsString:@"timeout"]);
+  XCTAssertTrue([description containsString:@"5"]);
+}
+
+- (void)testRequestDescriptionRedactsCredentialsFromMalformedProxyURIs
+{
+  for (NSString *uriString in @[
+    @"socks5x://alice:secret@proxy.example.com:1080",
+    @" socks5://alice:secret@proxy.example.com:1080",
+    @"socks5:alice:secret@proxy.example.com",
+  ]) {
+    FBRouteRequest *request = [FBRouteRequest
+      routeRequestWithURL:[NSURL URLWithString:@"/mobilerun/socks5/connect"]
+      parameters:@{}
+      arguments:@{@"uri": uriString}];
+
+    NSString *description = request.description;
+    XCTAssertFalse([description containsString:@"alice"], @"%@", description);
+    XCTAssertFalse([description containsString:@"secret"], @"%@", description);
+    XCTAssertTrue([description containsString:@"proxy.example.com"], @"%@", description);
+  }
+}
+
+- (void)testSocks5ConnectTimeoutIsFiniteAndBounded
+{
+  NSTimeInterval timeout = 0;
+  XCTAssertTrue(FBSocks5ConnectTimeoutFromValue(nil, &timeout));
+  XCTAssertEqual(timeout, 30.0);
+  XCTAssertTrue(FBSocks5ConnectTimeoutFromValue(@300, &timeout));
+  XCTAssertEqual(timeout, 300.0);
+
+  for (NSNumber *invalid in @[@0, @(-1), @301, @(1e308), @(INFINITY), @(NAN), @YES]) {
+    XCTAssertFalse(FBSocks5ConnectTimeoutFromValue(invalid, &timeout), @"%@ should be rejected", invalid);
+  }
+  XCTAssertFalse(FBSocks5ConnectTimeoutFromValue(@"30", &timeout));
+}
+
+- (void)testStandaloneRequestIdentityIncludesControllerAddress
+{
+  NSData *body = [@"same" dataUsingEncoding:NSUTF8StringEncoding];
+  NSArray *first = FBStandaloneRequestIdentity(@"POST", @"/mobilerun/socks5/connect", body, @"192.0.2.10");
+  NSArray *second = FBStandaloneRequestIdentity(@"POST", @"/mobilerun/socks5/connect", body, @"192.0.2.11");
+  NSArray *sameAsFirst = FBStandaloneRequestIdentity(@"POST", @"/mobilerun/socks5/connect", body, @"192.0.2.10");
+
+  XCTAssertNotEqualObjects(first, second);
+  XCTAssertEqualObjects(first, sameAsFirst);
+}
+
 + (id<FBResponsePayload>)dummyHandler:(FBRouteRequest *)request
 {
   return nil;
@@ -157,6 +225,7 @@
 
 static atomic_bool gControlProbeDone;
 static atomic_bool gControlProbeRanOffMain;
+static NSString *gControlProbeClientAddress;
 static atomic_bool gAutomationProbeDone;
 static atomic_bool gAutomationProbeRanOnMain;
 static atomic_int gSpinningProbeDepth;
@@ -164,6 +233,9 @@ static atomic_int gSpinningProbeMaxDepth;
 static atomic_int gSpinningProbeCompletions;
 
 @interface FBWebServer (DispatchTests)
++ (dispatch_queue_t)automationFunnelQueue;
++ (BOOL)performAutomationBlockOnMainQueue:(dispatch_block_t)block
+                                beforeDate:(NSDate *)deadline;
 - (void)registerRouteHandlers:(NSArray *)commandHandlerClasses;
 - (void)registerServerKeyRouteHandlers;
 - (FBHTTPServer *)server;
@@ -184,6 +256,7 @@ static atomic_int gSpinningProbeCompletions;
 {
   return @[
     [[FBRoute GET:@"/probe/control"].withoutSession.standalone respondWithBlock:^ id<FBResponsePayload> (FBRouteRequest *request) {
+      gControlProbeClientAddress = request.clientAddress;
       atomic_store(&gControlProbeRanOffMain, !NSThread.isMainThread);
       atomic_store(&gControlProbeDone, true);
       return FBResponseWithOK();
@@ -225,6 +298,7 @@ static atomic_int gSpinningProbeCompletions;
   [super setUp];
   atomic_store(&gControlProbeDone, false);
   atomic_store(&gControlProbeRanOffMain, false);
+  gControlProbeClientAddress = nil;
   atomic_store(&gAutomationProbeDone, false);
   atomic_store(&gAutomationProbeRanOnMain, false);
   atomic_store(&gSpinningProbeDepth, 0);
@@ -312,6 +386,7 @@ static atomic_int gSpinningProbeCompletions;
   }
   XCTAssertTrue(atomic_load(&gControlProbeDone));
   XCTAssertTrue(atomic_load(&gControlProbeRanOffMain));
+  XCTAssertEqualObjects(gControlProbeClientAddress, @"127.0.0.1");
 }
 
 - (void)testAutomationRouteRunsOnMainQueue
@@ -370,6 +445,88 @@ static atomic_int gSpinningProbeCompletions;
   XCTAssertEqual(atomic_load(&gSpinningProbeMaxDepth), 1, @"a second automation request must never nest inside the first");
 }
 
+- (void)testAutomationFunnelDeadlineCancelsQueuedBlock
+{
+  dispatch_semaphore_t funnelEntered = dispatch_semaphore_create(0);
+  dispatch_semaphore_t releaseFunnel = dispatch_semaphore_create(0);
+  dispatch_async(FBWebServer.automationFunnelQueue, ^{
+    dispatch_semaphore_signal(funnelEntered);
+    dispatch_semaphore_wait(releaseFunnel, DISPATCH_TIME_FOREVER);
+  });
+  XCTAssertEqual(dispatch_semaphore_wait(funnelEntered, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)), 0L);
+
+  __block volatile atomic_bool blockRan;
+  atomic_init(&blockRan, false);
+  __block BOOL acquired = YES;
+  __block NSTimeInterval elapsed = 0;
+  XCTestExpectation *returned = [self expectationWithDescription:@"deadline-aware funnel acquisition returned"];
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+    NSDate *startedAt = NSDate.date;
+    acquired = [FBWebServer performAutomationBlockOnMainQueue:^{
+      atomic_store(&blockRan, true);
+    } beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+    elapsed = -startedAt.timeIntervalSinceNow;
+    [returned fulfill];
+  });
+
+  [self waitForExpectations:@[returned] timeout:1.0];
+  XCTAssertFalse(acquired);
+  XCTAssertLessThan(elapsed, 0.75);
+  XCTAssertFalse(atomic_load(&blockRan));
+
+  XCTestExpectation *funnelDrained = [self expectationWithDescription:@"cancelled funnel block drained"];
+  dispatch_semaphore_signal(releaseFunnel);
+  dispatch_async(FBWebServer.automationFunnelQueue, ^{
+    [funnelDrained fulfill];
+  });
+  [self waitForExpectations:@[funnelDrained] timeout:1.0];
+  XCTAssertFalse(atomic_load(&blockRan), @"an expired queued block must not execute later");
+}
+
+- (void)testAutomationFunnelRethrowsExceptionOnCallerQueue
+{
+  NSException *expectedException = [NSException exceptionWithName:@"FBExpectedAutomationException"
+                                                            reason:@"synthetic XCUI failure"
+                                                          userInfo:nil];
+  __block NSException *caughtException = nil;
+  XCTestExpectation *returned = [self expectationWithDescription:@"automation exception returned to caller queue"];
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+    @try {
+      [FBWebServer performAutomationBlockOnMainQueue:^{
+        @throw expectedException;
+      }];
+    } @catch (NSException *exception) {
+      caughtException = exception;
+    }
+    [returned fulfill];
+  });
+
+  [self waitForExpectations:@[returned] timeout:2.0];
+  XCTAssertEqual(caughtException, expectedException);
+}
+
+- (void)testDeadlineAutomationFunnelRethrowsExceptionOnCallerQueue
+{
+  NSException *expectedException = [NSException exceptionWithName:@"FBExpectedDeadlineAutomationException"
+                                                            reason:@"synthetic consent query failure"
+                                                          userInfo:nil];
+  __block NSException *caughtException = nil;
+  XCTestExpectation *returned = [self expectationWithDescription:@"deadline automation exception returned to caller queue"];
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{
+    @try {
+      [FBWebServer performAutomationBlockOnMainQueue:^{
+        @throw expectedException;
+      } beforeDate:[NSDate dateWithTimeIntervalSinceNow:1.0]];
+    } @catch (NSException *exception) {
+      caughtException = exception;
+    }
+    [returned fulfill];
+  });
+
+  [self waitForExpectations:@[returned] timeout:2.0];
+  XCTAssertEqual(caughtException, expectedException);
+}
+
 @end
 
 #import <arpa/inet.h>
@@ -377,6 +534,9 @@ static atomic_int gSpinningProbeCompletions;
 #import <unistd.h>
 
 static atomic_int gFramingProbeHits;
+static atomic_int gStandaloneBodyProbeHits;
+static dispatch_semaphore_t gStandaloneFirstBodyEntered;
+static dispatch_semaphore_t gStandaloneReleaseFirstBody;
 
 // Exercises FBHTTPServer's HTTP framing defenses with raw socket data that URL-loading APIs
 // cannot produce: malformed Content-Length values and header blocks that never terminate.
@@ -391,6 +551,9 @@ static atomic_int gFramingProbeHits;
 {
   [super setUp];
   atomic_store(&gFramingProbeHits, 0);
+  atomic_store(&gStandaloneBodyProbeHits, 0);
+  gStandaloneFirstBodyEntered = dispatch_semaphore_create(0);
+  gStandaloneReleaseFirstBody = dispatch_semaphore_create(0);
   self.server = [FBHTTPServer new];
   [self.server handleMethod:@"POST" withPath:@"/framing/probe" block:^(RouteRequest *request, RouteResponse *response) {
     atomic_fetch_add(&gFramingProbeHits, 1);
@@ -403,6 +566,15 @@ static atomic_int gFramingProbeHits;
     atomic_fetch_add(&gFramingProbeHits, 1);
     [response respondWithString:@"session-probe-ok"];
   }];
+  [self.server handleMethod:@"POST" withPath:@"/standalone/body" standalone:YES block:^(RouteRequest *request, RouteResponse *response) {
+    atomic_fetch_add(&gStandaloneBodyProbeHits, 1);
+    NSString *body = [[NSString alloc] initWithData:request.body encoding:NSUTF8StringEncoding] ?: @"";
+    if ([body isEqualToString:@"first"]) {
+      dispatch_semaphore_signal(gStandaloneFirstBodyEntered);
+      dispatch_semaphore_wait(gStandaloneReleaseFirstBody, DISPATCH_TIME_FOREVER);
+    }
+    [response respondWithString:body];
+  }];
   self.server.port = 0;
   NSError *error;
   XCTAssertTrue([self.server start:&error], @"%@", error);
@@ -414,6 +586,43 @@ static atomic_int gFramingProbeHits;
   [self.server stop:NO];
   self.server = nil;
   [super tearDown];
+}
+
+- (void)testStandaloneRequestsWithDifferentBodiesAreNotCoalesced
+{
+  NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%d/standalone/body", self.port]];
+  NSMutableURLRequest *firstRequest = [NSMutableURLRequest requestWithURL:url];
+  firstRequest.HTTPMethod = @"POST";
+  firstRequest.HTTPBody = [@"first" dataUsingEncoding:NSUTF8StringEncoding];
+  NSMutableURLRequest *secondRequest = [NSMutableURLRequest requestWithURL:url];
+  secondRequest.HTTPMethod = @"POST";
+  secondRequest.HTTPBody = [@"second" dataUsingEncoding:NSUTF8StringEncoding];
+
+  XCTestExpectation *firstResponse = [self expectationWithDescription:@"first standalone response"];
+  XCTestExpectation *secondResponse = [self expectationWithDescription:@"second standalone response"];
+  __block NSString *firstBody = nil;
+  __block NSString *secondBody = nil;
+  [[NSURLSession.sharedSession dataTaskWithRequest:firstRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+    firstBody = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    [firstResponse fulfill];
+  }] resume];
+  XCTAssertEqual(0, dispatch_semaphore_wait(gStandaloneFirstBodyEntered,
+                                             dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)));
+
+  [[NSURLSession.sharedSession dataTaskWithRequest:secondRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+    secondBody = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    [secondResponse fulfill];
+  }] resume];
+  NSDate *secondHandlerDeadline = [NSDate dateWithTimeIntervalSinceNow:1.0];
+  while (atomic_load(&gStandaloneBodyProbeHits) < 2 && secondHandlerDeadline.timeIntervalSinceNow > 0) {
+    [NSThread sleepForTimeInterval:0.01];
+  }
+  dispatch_semaphore_signal(gStandaloneReleaseFirstBody);
+
+  [self waitForExpectations:@[firstResponse, secondResponse] timeout:5.0];
+  XCTAssertEqual(atomic_load(&gStandaloneBodyProbeHits), 2);
+  XCTAssertEqualObjects(firstBody, @"first");
+  XCTAssertEqualObjects(secondBody, @"second");
 }
 
 // Sends `payload` as-is and reads until the server closes the connection or `timeout` elapses.
