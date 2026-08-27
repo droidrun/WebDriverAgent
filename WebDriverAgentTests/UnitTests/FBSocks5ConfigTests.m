@@ -30,6 +30,10 @@ typedef NS_ENUM(NSInteger, FBSocks5TunnelManagerSaveDisposition) {
 
 extern FBSocks5TunnelManagerSaveDisposition FBSocks5TunnelManagerSaveDispositionForError(NSError *error);
 extern NSDictionary<NSString *, id> *_Nullable FBSocks5TunnelManagerDisconnectedStatsIfExtensionUnavailable(NSBundle *bundle);
+extern BOOL FBSocks5TunnelManagerConfigurationNeedsSave(NETunnelProviderManager *manager,
+                                                        NETunnelProviderProtocol *desiredProtocol,
+                                                        NSString *desiredDescription);
+extern NSString *FBSocks5TunnelManagerStartRejectedMessage(FBSocks5URI *uri);
 
 @interface FBSocks5ConfigTests : XCTestCase
 @property (nonatomic, nullable, copy) NSString *tempBundleRoot;
@@ -402,6 +406,65 @@ extern NSDictionary<NSString *, id> *_Nullable FBSocks5TunnelManagerDisconnected
                  FBSocks5TunnelManagerSaveDispositionInternal);
   XCTAssertEqual(FBSocks5TunnelManagerSaveDispositionForError(invalid),
                  FBSocks5TunnelManagerSaveDispositionInternal);
+}
+
+- (void)testMatchingEnabledVPNConfigurationDoesNotNeedAnotherSave
+{
+  NETunnelProviderProtocol *protocol = [[NETunnelProviderProtocol alloc] init];
+  protocol.providerBundleIdentifier = @"com.example.runner.tunnel";
+  protocol.serverAddress = @"proxy.example.com";
+  protocol.providerConfiguration = @{
+    FBSocks5KeyHost: @"proxy.example.com",
+    FBSocks5KeyPort: @1080,
+    FBSocks5KeyRemoteDNS: @YES,
+  };
+  protocol.disconnectOnSleep = NO;
+
+  NETunnelProviderManager *manager = [[NETunnelProviderManager alloc] init];
+  manager.protocolConfiguration = protocol;
+  manager.localizedDescription = @"mobilerun SOCKS5";
+  manager.enabled = YES;
+
+  NETunnelProviderProtocol *desiredProtocol = [protocol copy];
+  XCTAssertFalse(FBSocks5TunnelManagerConfigurationNeedsSave(manager,
+                                                             desiredProtocol,
+                                                             @"mobilerun SOCKS5"));
+}
+
+- (void)testChangedVPNConfigurationStillNeedsSave
+{
+  NETunnelProviderProtocol *protocol = [[NETunnelProviderProtocol alloc] init];
+  protocol.providerBundleIdentifier = @"com.example.runner.tunnel";
+  protocol.serverAddress = @"proxy.example.com";
+  protocol.providerConfiguration = @{FBSocks5KeyHost: @"proxy.example.com"};
+  protocol.disconnectOnSleep = NO;
+
+  NETunnelProviderManager *manager = [[NETunnelProviderManager alloc] init];
+  manager.protocolConfiguration = protocol;
+  manager.localizedDescription = @"mobilerun SOCKS5";
+  manager.enabled = YES;
+
+  NETunnelProviderProtocol *desiredProtocol = [protocol copy];
+  desiredProtocol.providerConfiguration = @{FBSocks5KeyHost: @"other.example.com"};
+  XCTAssertTrue(FBSocks5TunnelManagerConfigurationNeedsSave(manager,
+                                                            desiredProtocol,
+                                                            @"mobilerun SOCKS5"));
+  manager.enabled = NO;
+  desiredProtocol.providerConfiguration = protocol.providerConfiguration;
+  XCTAssertTrue(FBSocks5TunnelManagerConfigurationNeedsSave(manager,
+                                                            desiredProtocol,
+                                                            @"mobilerun SOCKS5"));
+}
+
+- (void)testLocalDNSStartupFailureNamesUDPAssociateRequirement
+{
+  FBSocks5URI *localDNS = [FBSocks5URI parse:@"socks5://proxy.example.com:1080" error:nil];
+  FBSocks5URI *remoteDNS = [FBSocks5URI parse:@"socks5h://proxy.example.com:1080" error:nil];
+
+  NSString *localMessage = FBSocks5TunnelManagerStartRejectedMessage(localDNS);
+  XCTAssertTrue([localMessage containsString:@"UDP ASSOCIATE"]);
+  XCTAssertTrue([localMessage containsString:@"socks5h://"]);
+  XCTAssertFalse([FBSocks5TunnelManagerStartRejectedMessage(remoteDNS) containsString:@"UDP ASSOCIATE"]);
 }
 
 @end

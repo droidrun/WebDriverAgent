@@ -74,10 +74,15 @@ static id FBRedactedRequestLogValue(id value)
   return value;
 }
 
-static NSDictionary *FBRedactedRequestArguments(NSURL *URL, NSDictionary *arguments)
+static id FBRedactedRequestArguments(NSURL *URL, id arguments)
 {
-  NSMutableDictionary *redacted = [(NSDictionary *)FBRedactedRequestLogValue(arguments) mutableCopy];
-  id uri = arguments[@"uri"];
+  id redactedValue = FBRedactedRequestLogValue(arguments);
+  if (![redactedValue isKindOfClass:NSDictionary.class]
+      || ![arguments isKindOfClass:NSDictionary.class]) {
+    return redactedValue;
+  }
+  NSMutableDictionary *redacted = [(NSDictionary *)redactedValue mutableCopy];
+  id uri = ((NSDictionary *)arguments)[@"uri"];
   if ([URL.path hasSuffix:@"/mobilerun/socks5/connect"] && [uri isKindOfClass:NSString.class]) {
     redacted[@"uri"] = FBRedactedProxyURIString((NSString *)uri);
   }

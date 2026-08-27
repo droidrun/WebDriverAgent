@@ -10,6 +10,7 @@
 
 #include <errno.h>
 #import <stdatomic.h>
+#import <NetworkExtension/NetworkExtension.h>
 
 #import "FBSocks5TunnelProtocol.h"
 #import "FBSocks5URI.h"
@@ -24,6 +25,44 @@ static BOOL FBSocks5Fail(NSError **error, FBSocks5TunnelManagerError code, NSStr
                              userInfo:@{NSLocalizedDescriptionKey: message}];
   }
   return NO;
+}
+
+static BOOL FBSocks5ObjectsEqual(id left, id right)
+{
+  return left == right || [left isEqual:right];
+}
+
+BOOL FBSocks5TunnelManagerConfigurationNeedsSave(NETunnelProviderManager *manager,
+                                                 NETunnelProviderProtocol *desiredProtocol,
+                                                 NSString *desiredDescription)
+{
+  NETunnelProviderProtocol *currentProtocol = (NETunnelProviderProtocol *)manager.protocolConfiguration;
+  if (![currentProtocol isKindOfClass:NETunnelProviderProtocol.class]) {
+    return YES;
+  }
+  return !manager.enabled
+    || !FBSocks5ObjectsEqual(manager.localizedDescription, desiredDescription)
+    || !FBSocks5ObjectsEqual(currentProtocol.providerBundleIdentifier,
+                             desiredProtocol.providerBundleIdentifier)
+    || !FBSocks5ObjectsEqual(currentProtocol.serverAddress, desiredProtocol.serverAddress)
+    || !FBSocks5ObjectsEqual(currentProtocol.providerConfiguration,
+                             desiredProtocol.providerConfiguration)
+    || currentProtocol.disconnectOnSleep != desiredProtocol.disconnectOnSleep;
+}
+
+NSString *FBSocks5TunnelManagerStartRejectedMessage(FBSocks5URI *uri)
+{
+  if (!uri.remoteDNS) {
+    return [NSString stringWithFormat:
+      @"The SOCKS5 tunnel stopped right after starting. Plain socks5:// DNS requires UDP "
+       "ASSOCIATE support from the proxy at %@:%lu; use socks5h:// for TCP-only proxies. "
+       "The proxy may also be unreachable, invalid, or rejecting the credentials",
+      uri.host, (unsigned long)uri.port];
+  }
+  return [NSString stringWithFormat:
+    @"The SOCKS5 tunnel stopped right after starting. The proxy at %@:%lu is unreachable, "
+     "is not a SOCKS5 proxy, or rejected the credentials",
+    uri.host, (unsigned long)uri.port];
 }
 
 // The tunnel appex is only embedded by the WebDriverAgentRunnerTunnel schemes (the default
@@ -632,84 +671,90 @@ static uint64_t FBSocks5NowMs(void)
   protocol.serverAddress = uri.host;
   protocol.providerConfiguration = [uri providerConfigurationWithControlAddress:controlAddress];
   protocol.disconnectOnSleep = NO;
-  manager.protocolConfiguration = protocol;
-  manager.localizedDescription = FBSocks5TunnelDescription;
-  manager.enabled = YES;
+  BOOL needsConfigurationSave = manager.connection.status != NEVPNStatusDisconnected
+    || FBSocks5TunnelManagerConfigurationNeedsSave(manager, protocol, FBSocks5TunnelDescription);
+  if (needsConfigurationSave) {
+    manager.protocolConfiguration = protocol;
+    manager.localizedDescription = FBSocks5TunnelDescription;
+    manager.enabled = YES;
 
-  __block BOOL consentTapped = NO;
-  NSUInteger staleRetries = 0;
-  while (YES) {
-    if (deadline.timeIntervalSinceNow <= 0) {
-      return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
-                          @"Timed out before saving the VPN configuration");
-    }
-    __block volatile atomic_bool saveDone = false;
-    __block NSError *saveError = nil;
-    dispatch_semaphore_t saveSignal = dispatch_semaphore_create(0);
-    self.lifecycle.pendingSaveSignal = saveSignal;
-    [manager saveToPreferencesWithCompletionHandler:^(NSError *err) {
-      saveError = err;
-      atomic_store_explicit(&saveDone, true, memory_order_release);
-      dispatch_semaphore_signal(saveSignal);
-    }];
-    // Keep re-attempting for as long as the alert is still up: a dispatched tap can be shed by the
-    // system, so 'we dispatched one' is not evidence that it landed. tapConsentButtonWithLabels:
-    // paces the re-attempts itself and answers NO once the alert is gone.
-    // No MAX(..., 1.0) floor here: granting an already-exhausted request another second is
-    // exactly the overshoot the caller's timeout is supposed to prevent.
-    [[[[FBRunLoopSpinner new] timeout:deadline.timeIntervalSinceNow] interval:0.3] spinUntilTrue:^BOOL{
-      if (atomic_load_explicit(&saveDone, memory_order_acquire)) {
-        return YES;
+    __block BOOL consentTapped = NO;
+    NSUInteger staleRetries = 0;
+    while (YES) {
+      if (deadline.timeIntervalSinceNow <= 0) {
+        return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
+                            @"Timed out before saving the VPN configuration");
       }
-      if ([self tapConsentButtonWithLabels:labels deadline:deadline]) {
-        consentTapped = YES;
-      }
-      return NO;
-    }];
-    if (!atomic_load_explicit(&saveDone, memory_order_acquire)) {
-      return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
-                          [NSString stringWithFormat:
-                           @"Timed out saving the VPN configuration. The consent alert was %@; "
-                           "pass 'consentButtonLabels' if the device language is not English, and note that "
-                           "devices with a passcode cannot confirm the VPN consent automatically",
-                           consentTapped ? @"confirmed" : @"not confirmed"]);
-    }
-    self.lifecycle.pendingSaveSignal = nil;
-    if (nil == saveError) {
-      break;
-    }
-    FBSocks5TunnelManagerSaveDisposition disposition =
-      FBSocks5TunnelManagerSaveDispositionForError(saveError);
-    if (FBSocks5TunnelManagerSaveDispositionRetryStale == disposition && 0 == staleRetries) {
-      staleRetries++;
-      [FBLogger log:@"socks5/connect: VPN configuration became stale; reloading and retrying the save once"];
-      if (![self reloadManager:manager
-                      deadline:deadline
-                       context:@"reloading the stale VPN configuration"
-                         error:error]) {
+      __block volatile atomic_bool saveDone = false;
+      __block NSError *saveError = nil;
+      dispatch_semaphore_t saveSignal = dispatch_semaphore_create(0);
+      self.lifecycle.pendingSaveSignal = saveSignal;
+      [manager saveToPreferencesWithCompletionHandler:^(NSError *err) {
+        saveError = err;
+        atomic_store_explicit(&saveDone, true, memory_order_release);
+        dispatch_semaphore_signal(saveSignal);
+      }];
+      // Keep re-attempting for as long as the alert is still up: a dispatched tap can be shed by the
+      // system, so 'we dispatched one' is not evidence that it landed. tapConsentButtonWithLabels:
+      // paces the re-attempts itself and answers NO once the alert is gone.
+      // No MAX(..., 1.0) floor here: granting an already-exhausted request another second is
+      // exactly the overshoot the caller's timeout is supposed to prevent.
+      [[[[FBRunLoopSpinner new] timeout:deadline.timeIntervalSinceNow] interval:0.3] spinUntilTrue:^BOOL{
+        if (atomic_load_explicit(&saveDone, memory_order_acquire)) {
+          return YES;
+        }
+        if ([self tapConsentButtonWithLabels:labels deadline:deadline]) {
+          consentTapped = YES;
+        }
         return NO;
+      }];
+      if (!atomic_load_explicit(&saveDone, memory_order_acquire)) {
+        return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
+                            [NSString stringWithFormat:
+                             @"Timed out saving the VPN configuration. The consent alert was %@; "
+                             "pass 'consentButtonLabels' if the device language is not English, and note that "
+                             "devices with a passcode cannot confirm the VPN consent automatically",
+                             consentTapped ? @"confirmed" : @"not confirmed"]);
       }
-      manager.protocolConfiguration = protocol;
-      manager.localizedDescription = FBSocks5TunnelDescription;
-      manager.enabled = YES;
-      continue;
+      self.lifecycle.pendingSaveSignal = nil;
+      if (nil == saveError) {
+        break;
+      }
+      FBSocks5TunnelManagerSaveDisposition disposition =
+        FBSocks5TunnelManagerSaveDispositionForError(saveError);
+      if (FBSocks5TunnelManagerSaveDispositionRetryStale == disposition && 0 == staleRetries) {
+        staleRetries++;
+        [FBLogger log:@"socks5/connect: VPN configuration became stale; reloading and retrying the save once"];
+        if (![self reloadManager:manager
+                        deadline:deadline
+                         context:@"reloading the stale VPN configuration"
+                           error:error]) {
+          return NO;
+        }
+        manager.protocolConfiguration = protocol;
+        manager.localizedDescription = FBSocks5TunnelDescription;
+        manager.enabled = YES;
+        continue;
+      }
+      FBSocks5TunnelManagerError code = FBSocks5TunnelManagerSaveDispositionNotAuthorized == disposition
+        ? FBSocks5TunnelManagerErrorNotAuthorized
+        : FBSocks5TunnelManagerErrorInternal;
+      NSString *prefix = FBSocks5TunnelManagerSaveDispositionNotAuthorized == disposition
+        ? @"The VPN configuration was not authorized"
+        : @"Cannot save the VPN configuration";
+      return FBSocks5Fail(error, code,
+                          [NSString stringWithFormat:@"%@: %@", prefix, saveError.localizedDescription]);
     }
-    FBSocks5TunnelManagerError code = FBSocks5TunnelManagerSaveDispositionNotAuthorized == disposition
-      ? FBSocks5TunnelManagerErrorNotAuthorized
-      : FBSocks5TunnelManagerErrorInternal;
-    NSString *prefix = FBSocks5TunnelManagerSaveDispositionNotAuthorized == disposition
-      ? @"The VPN configuration was not authorized"
-      : @"Cannot save the VPN configuration";
-    return FBSocks5Fail(error, code,
-                        [NSString stringWithFormat:@"%@: %@", prefix, saveError.localizedDescription]);
-  }
 
-  // A freshly saved configuration must be re-loaded before the tunnel can be started.
-  if (![self reloadManager:manager
-                  deadline:deadline
-                   context:@"reloading the saved VPN configuration"
-                     error:error]) {
-    return NO;
+    // A freshly saved configuration must be re-loaded before the tunnel can be started.
+    if (![self reloadManager:manager
+                    deadline:deadline
+                     context:@"reloading the saved VPN configuration"
+                       error:error]) {
+      return NO;
+    }
+  } else {
+    [FBLogger log:@"socks5/connect: reusing the unchanged VPN configuration"];
   }
 
   if (deadline.timeIntervalSinceNow <= 0) {
@@ -752,10 +797,7 @@ static uint64_t FBSocks5NowMs(void)
     [manager.connection stopVPNTunnel];
     return FBSocks5Fail(error, FBSocks5TunnelManagerErrorTimeout,
                         startRejected
-                        ? [NSString stringWithFormat:
-                           @"The SOCKS5 tunnel stopped right after starting. The proxy at %@:%lu "
-                           "is unreachable, is not a SOCKS5 proxy, or rejected the credentials",
-                           uri.host, (unsigned long)uri.port]
+                        ? FBSocks5TunnelManagerStartRejectedMessage(uri)
                         : [NSString stringWithFormat:
                            @"The SOCKS5 tunnel did not connect within %.0fs (status %ld). "
                            "Check that the proxy at %@:%lu is reachable from the device",

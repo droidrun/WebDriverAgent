@@ -22,7 +22,7 @@ Network Extension capability.
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/mobilerun/socks5/connect` | POST | Installs/updates the VPN configuration (auto-accepting the system consent alert via UI automation) and starts the tunnel. Replaces an already running tunnel. Returns once the tunnel reports connected. |
+| `/mobilerun/socks5/connect` | POST | Installs/updates the VPN configuration (auto-accepting the system consent alert via UI automation) and starts the tunnel. Reuses an unchanged installed configuration without saving it again. Replaces an already running tunnel. Returns once the tunnel reports connected. |
 | `/mobilerun/socks5/disconnect` | POST | Stops the running tunnel. The VPN profile stays installed. Succeeds when no tunnel is running. Send `{}` as the body (WDA rejects body-less POSTs with HTTP 400). |
 | `/mobilerun/socks5/stats` | GET | Connection state plus traffic counters queried from the extension. Never fails; counters fall back to zero when the extension cannot be reached. |
 

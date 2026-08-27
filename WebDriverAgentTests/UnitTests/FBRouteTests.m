@@ -186,6 +186,26 @@ extern NSArray *FBStandaloneRequestIdentity(NSString *method,
   }
 }
 
+- (void)testRequestDescriptionAcceptsArrayArguments
+{
+  NSArray *arguments = @[
+    @{
+      @"type": @"pointerDown",
+      @"uri": @"https://alice:secret@example.com/path",
+    },
+  ];
+  FBRouteRequest *request = [FBRouteRequest
+    routeRequestWithURL:[NSURL URLWithString:@"/mobilerun/actions"]
+    parameters:@{}
+    arguments:(NSDictionary *)(id)arguments];
+
+  NSString *description = request.description;
+  XCTAssertFalse([description containsString:@"alice"]);
+  XCTAssertFalse([description containsString:@"secret"]);
+  XCTAssertTrue([description containsString:@"example.com/path"]);
+  XCTAssertTrue([description containsString:@"pointerDown"]);
+}
+
 - (void)testSocks5ConnectTimeoutIsFiniteAndBounded
 {
   NSTimeInterval timeout = 0;
