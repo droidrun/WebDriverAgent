@@ -1,0 +1,257 @@
+name: Prebuild & Publish Signed WDA
+
+# Required repository secrets:
+#   WDA_SIGNING_CERTIFICATE_P12_BASE64, WDA_SIGNING_CERTIFICATE_PASSWORD
+#   WDA_RUNNER_PROFILE_BASE64, WDA_BROADCAST_PROFILE_BASE64, WDA_TUNNEL_PROFILE_BASE64
+#   CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN
+# Required repository variable:
+#   R2_BUCKET=mobilerun-ios-assets
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: signed-wda-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+env:
+  XCODE_VERSION: "16.4"
+  WDA_BASE_BUNDLE_ID: com.droidrun.WebDriverAgentRunner
+  WDA_RUNNER_BUNDLE_ID: com.droidrun.WebDriverAgentRunner.xctrunner
+  WDA_BROADCAST_BUNDLE_ID: com.droidrun.WebDriverAgentRunner.xctrunner.broadcast
+  WDA_TUNNEL_BUNDLE_ID: com.droidrun.WebDriverAgentRunner.xctrunner.tunnel
+  WDA_DEVELOPMENT_TEAM: 5KTKV6FRNZ
+  WRANGLER_VERSION: "4.127.1"
+
+jobs:
+  build:
+    name: Build and sign tunnel-enabled WDA
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout release
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: ${{ env.XCODE_VERSION }}
+
+      - name: Install signing certificate and provisioning profiles
+        env:
+          SIGNING_CERTIFICATE_P12_BASE64: ${{ secrets.WDA_SIGNING_CERTIFICATE_P12_BASE64 }}
+          SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WDA_SIGNING_CERTIFICATE_PASSWORD }}
+          RUNNER_PROFILE_BASE64: ${{ secrets.WDA_RUNNER_PROFILE_BASE64 }}
+          BROADCAST_PROFILE_BASE64: ${{ secrets.WDA_BROADCAST_PROFILE_BASE64 }}
+          TUNNEL_PROFILE_BASE64: ${{ secrets.WDA_TUNNEL_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/wda-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+          CERTIFICATE_PATH="$RUNNER_TEMP/wda-signing.p12"
+          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+
+          printf '%s' "$SIGNING_CERTIFICATE_P12_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH" \
+            -P "$SIGNING_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -d user -s "$KEYCHAIN_PATH"
+
+          mkdir -p "$PROFILES_DIR"
+          install_profile() {
+            local encoded_profile="$1"
+            local expected_application_id="$2"
+            local require_tunnel_entitlement="$3"
+            local profile_path="$RUNNER_TEMP/profile.mobileprovision"
+            local profile_plist="$RUNNER_TEMP/profile.plist"
+
+            printf '%s' "$encoded_profile" | base64 --decode > "$profile_path"
+            security cms -D -i "$profile_path" > "$profile_plist"
+
+            local uuid
+            local application_id
+            local team_id
+            uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$profile_plist")
+            application_id=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")
+            team_id=$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$profile_plist")
+
+            test "$application_id" = "${WDA_DEVELOPMENT_TEAM}.${expected_application_id}"
+            test "$team_id" = "$WDA_DEVELOPMENT_TEAM"
+
+            if [ "$require_tunnel_entitlement" = "yes" ]; then
+              /usr/libexec/PlistBuddy \
+                -c 'Print :Entitlements:com.apple.developer.networking.networkextension' \
+                "$profile_plist" | grep -Fq 'packet-tunnel-provider'
+            fi
+
+            cp "$profile_path" "$PROFILES_DIR/$uuid.mobileprovision"
+          }
+
+          install_profile "$RUNNER_PROFILE_BASE64" "$WDA_RUNNER_BUNDLE_ID" yes
+          install_profile "$BROADCAST_PROFILE_BASE64" "$WDA_BROADCAST_BUNDLE_ID" no
+          install_profile "$TUNNEL_PROFILE_BASE64" "$WDA_TUNNEL_BUNDLE_ID" yes
+
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Build tunnel engine
+        run: Scripts/build-hev-socks5-tunnel.sh
+
+      - name: Build signed WDA runner
+        run: |
+          set -euo pipefail
+          xcodebuild clean build-for-testing \
+            -project WebDriverAgent.xcodeproj \
+            -scheme WebDriverAgentRunnerTunnel \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/wda-derived-data" \
+            ARCHS=arm64 \
+            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY='Apple Development' \
+            DEVELOPMENT_TEAM="$WDA_DEVELOPMENT_TEAM" \
+            WDA_PRODUCT_BUNDLE_IDENTIFIER="$WDA_BASE_BUNDLE_ID" \
+            WDA_RUNNER_ENTITLEMENTS=WebDriverAgentRunner/WebDriverAgentRunner.entitlements \
+            WDA_TUNNEL_ENTITLEMENTS=WebDriverAgentTunnel/WebDriverAgentTunnel.entitlements
+
+      - name: Verify signed application
+        run: |
+          set -euo pipefail
+
+          APP_PATH="$RUNNER_TEMP/wda-derived-data/Build/Products/Debug-iphoneos/WebDriverAgentRunner-Runner.app"
+          BROADCAST_PATH="$APP_PATH/PlugIns/WebDriverAgentBroadcast.appex"
+          TUNNEL_PATH="$APP_PATH/PlugIns/WebDriverAgentTunnel.appex"
+
+          test -d "$APP_PATH"
+          test -d "$BROADCAST_PATH"
+          test -d "$TUNNEL_PATH"
+
+          bundle_id() {
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Info.plist"
+          }
+
+          test "$(bundle_id "$APP_PATH")" = "$WDA_RUNNER_BUNDLE_ID"
+          test "$(bundle_id "$BROADCAST_PATH")" = "$WDA_BROADCAST_BUNDLE_ID"
+          test "$(bundle_id "$TUNNEL_PATH")" = "$WDA_TUNNEL_BUNDLE_ID"
+
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+          verify_signature() {
+            local bundle_path="$1"
+            local expected_application_id="$2"
+            local require_tunnel_entitlement="$3"
+            local signature_info="$RUNNER_TEMP/signature-info.txt"
+            local entitlements="$RUNNER_TEMP/entitlements.plist"
+
+            codesign -d --verbose=4 "$bundle_path" > /dev/null 2> "$signature_info"
+            grep -Fq "TeamIdentifier=$WDA_DEVELOPMENT_TEAM" "$signature_info"
+            grep -Fq 'Authority=Apple Development: Timo Beckmann' "$signature_info"
+
+            codesign -d --entitlements :- "$bundle_path" > "$entitlements"
+            test "$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$entitlements")" = \
+              "${WDA_DEVELOPMENT_TEAM}.${expected_application_id}"
+
+            if [ "$require_tunnel_entitlement" = "yes" ]; then
+              test "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.networking.networkextension:0' "$entitlements")" = \
+                'packet-tunnel-provider'
+            fi
+          }
+
+          verify_signature "$APP_PATH" "$WDA_RUNNER_BUNDLE_ID" yes
+          verify_signature "$BROADCAST_PATH" "$WDA_BROADCAST_BUNDLE_ID" no
+          verify_signature "$TUNNEL_PATH" "$WDA_TUNNEL_BUNDLE_ID" yes
+
+      - name: Package signed IPA and checksums
+        env:
+          RELEASE_VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          APP_PATH="$RUNNER_TEMP/wda-derived-data/Build/Products/Debug-iphoneos/WebDriverAgentRunner-Runner.app"
+          DIST_PATH="$RUNNER_TEMP/dist"
+          mkdir -p "$DIST_PATH/Payload"
+          ditto --norsrc "$APP_PATH" "$DIST_PATH/Payload/WebDriverAgentRunner-Runner.app"
+
+          ditto -c -k --norsrc --keepParent "$DIST_PATH/Payload" "$DIST_PATH/WebDriverAgentRunnerTunnel.ipa"
+          rm -rf "$DIST_PATH/Payload"
+
+          (
+            cd "$DIST_PATH"
+            shasum -a 256 WebDriverAgentRunnerTunnel.ipa > SHA256SUMS
+          )
+
+          {
+            echo "version=$RELEASE_VERSION"
+            echo "commit=$GITHUB_SHA"
+            echo "bundle_id=$WDA_RUNNER_BUNDLE_ID"
+            echo "broadcast_bundle_id=$WDA_BROADCAST_BUNDLE_ID"
+            echo "tunnel_bundle_id=$WDA_TUNNEL_BUNDLE_ID"
+            echo "development_team=$WDA_DEVELOPMENT_TEAM"
+            echo "xcode=$(xcodebuild -version | tr '\n' ' ')"
+            echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > "$DIST_PATH/BUILD_INFO.txt"
+
+          cat "$DIST_PATH/SHA256SUMS"
+          cat "$DIST_PATH/BUILD_INFO.txt"
+
+      - name: Upload signed release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WebDriverAgentRunnerTunnel-${{ github.event.release.tag_name }}
+          path: ${{ runner.temp }}/dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish signed WDA to Cloudflare R2
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      RELEASE_VERSION: ${{ github.event.release.tag_name }}
+    steps:
+      - name: Download signed release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: WebDriverAgentRunnerTunnel-${{ github.event.release.tag_name }}
+          path: dist
+
+      - name: Upload versioned release and latest mirror
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          test "$R2_BUCKET" = 'mobilerun-ios-assets'
+
+          upload_directory() {
+            local destination="$1"
+            local file
+            for file in dist/*; do
+              npx --yes "wrangler@$WRANGLER_VERSION" r2 object put \
+                "$R2_BUCKET/$destination/$(basename "$file")" \
+                --remote \
+                --file "$file"
+            done
+          }
+
+          upload_directory "releases/mobilerun-wda/$RELEASE_VERSION"
+          upload_directory "releases/mobilerun-wda/latest"
