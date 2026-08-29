@@ -1,6 +1,8 @@
 name: Prebuild & Publish Signed WDA
 
 # Required repository secrets:
+#   WDA_BASE_BUNDLE_ID, WDA_RUNNER_BUNDLE_ID, WDA_BROADCAST_BUNDLE_ID
+#   WDA_TUNNEL_BUNDLE_ID, WDA_DEVELOPMENT_TEAM
 #   WDA_SIGNING_CERTIFICATE_P12_BASE64, WDA_SIGNING_CERTIFICATE_PASSWORD
 #   WDA_RUNNER_PROFILE_BASE64, WDA_BROADCAST_PROFILE_BASE64, WDA_TUNNEL_PROFILE_BASE64
 #   CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN
@@ -17,11 +19,6 @@ concurrency:
 
 env:
   XCODE_VERSION: "16.4"
-  WDA_BASE_BUNDLE_ID: com.droidrun.WebDriverAgentRunner
-  WDA_RUNNER_BUNDLE_ID: com.droidrun.WebDriverAgentRunner.xctrunner
-  WDA_BROADCAST_BUNDLE_ID: com.droidrun.WebDriverAgentRunner.xctrunner.broadcast
-  WDA_TUNNEL_BUNDLE_ID: com.droidrun.WebDriverAgentRunner.xctrunner.tunnel
-  WDA_DEVELOPMENT_TEAM: 5KTKV6FRNZ
   WRANGLER_VERSION: "4.127.1"
 
 jobs:
@@ -30,6 +27,12 @@ jobs:
     runs-on: macos-15
     permissions:
       contents: read
+    env:
+      WDA_BASE_BUNDLE_ID: ${{ secrets.WDA_BASE_BUNDLE_ID }}
+      WDA_RUNNER_BUNDLE_ID: ${{ secrets.WDA_RUNNER_BUNDLE_ID }}
+      WDA_BROADCAST_BUNDLE_ID: ${{ secrets.WDA_BROADCAST_BUNDLE_ID }}
+      WDA_TUNNEL_BUNDLE_ID: ${{ secrets.WDA_TUNNEL_BUNDLE_ID }}
+      WDA_DEVELOPMENT_TEAM: ${{ secrets.WDA_DEVELOPMENT_TEAM }}
     steps:
       - name: Checkout release
         uses: actions/checkout@v4
@@ -50,6 +53,11 @@ jobs:
           TUNNEL_PROFILE_BASE64: ${{ secrets.WDA_TUNNEL_PROFILE_BASE64 }}
         run: |
           set -euo pipefail
+          test -n "$WDA_BASE_BUNDLE_ID"
+          test -n "$WDA_RUNNER_BUNDLE_ID"
+          test -n "$WDA_BROADCAST_BUNDLE_ID"
+          test -n "$WDA_TUNNEL_BUNDLE_ID"
+          test -n "$WDA_DEVELOPMENT_TEAM"
 
           KEYCHAIN_PATH="$RUNNER_TEMP/wda-signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
