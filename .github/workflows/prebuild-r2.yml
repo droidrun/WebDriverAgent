@@ -224,8 +224,8 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  publish:
-    name: Publish signed WDA to Cloudflare R2
+  upload:
+    name: Upload signed WDA to Cloudflare R2
     needs: build
     runs-on: ubuntu-latest
     permissions:
