@@ -83,7 +83,7 @@ typedef struct {
 
 /** VIDEO_FRAME flags bit 0: the frame is a key (IDR) frame. */
 extern const uint8_t FBBroadcastFrameFlagKeyFrame;
-/** VIDEO_FRAME flags bits 1-3: CGImagePropertyOrientation (1-8) of the captured frame. */
+/** VIDEO_FRAME flags bits 1-4: CGImagePropertyOrientation (1-8) of the captured frame. */
 extern const uint8_t FBBroadcastFrameOrientationShift;
 extern const uint8_t FBBroadcastFrameOrientationMask;
 
@@ -117,6 +117,30 @@ extern NSString *const FBBroadcastKeySampleRate;
 
 /** The FBBroadcastKeyMedia value marking an audio session. */
 extern NSString *const FBBroadcastMediaAudio;
+
+/** An encoder footprint in pixels. */
+typedef struct {
+  NSUInteger width;
+  NSUInteger height;
+} FBBroadcastDimensions;
+
+/**
+ Returns the encoder footprint for a ReplayKit frame while preserving the
+ configured resolution. Orientations 5-8 rotate the source buffer by 90
+ degrees; an unknown orientation falls back to the raw buffer aspect.
+ */
+FBBroadcastDimensions FBBroadcastTargetDimensions(NSUInteger configuredWidth,
+                                                   NSUInteger configuredHeight,
+                                                   NSUInteger sourceBufferWidth,
+                                                   NSUInteger sourceBufferHeight,
+                                                   uint8_t orientation);
+
+/** Milliseconds to wait after a failed encoder reconfiguration attempt. */
+uint64_t FBBroadcastReconfigureRetryDelayMs(NSUInteger failureCount);
+
+/** Monotonic retry deadline measured from the completion of a failed attempt. */
+uint64_t FBBroadcastReconfigureRetryDeadlineMs(uint64_t failureCompletedAtMs,
+                                               NSUInteger failureCount);
 
 /** Codec string values used in SESSION_ADD, matching the HTTP API. */
 extern NSString *const FBBroadcastCodecH264;

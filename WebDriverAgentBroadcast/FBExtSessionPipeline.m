@@ -30,12 +30,16 @@ static const int POOL_ALLOCATION_THRESHOLD = 4;
 
 @property (nonatomic, weak) id<FBExtMessageSink> sink;
 @property (nonatomic) dispatch_queue_t queue;
-@property (nonatomic, nullable) FBVideoEncoder *encoder;
+@property (atomic, nullable) FBVideoEncoder *encoder;
 @property (nonatomic) VTPixelTransferSessionRef transferSession;
 @property (nonatomic) CVPixelBufferPoolRef bufferPool;
+@property (nonatomic) NSUInteger configuredWidth;
+@property (nonatomic) NSUInteger configuredHeight;
 @property (nonatomic) NSUInteger width;
 @property (nonatomic) NSUInteger height;
 @property (nonatomic) NSUInteger fps;
+@property (nonatomic) NSUInteger bitrate;
+@property (nonatomic) FBVideoCodec codec;
 @property (nonatomic) uint64_t lastSubmitTimeMs;
 /** The next monotonic timestamp at which a frame is due (fps gate accumulator). */
 @property (nonatomic) uint64_t nextDueMs;
@@ -46,6 +50,10 @@ static const int POOL_ALLOCATION_THRESHOLD = 4;
 @property (atomic) uint8_t currentOrientation;
 @property (nonatomic) BOOL directSourceEncodingDisabled;
 @property (nonatomic, nullable, copy) NSData *lastSentParameterSets;
+@property (nonatomic) NSUInteger failedReconfigureWidth;
+@property (nonatomic) NSUInteger failedReconfigureHeight;
+@property (nonatomic) NSUInteger reconfigureFailureCount;
+@property (nonatomic) uint64_t nextReconfigureAttemptMs;
 
 // Lightweight diagnostics, exposed via metricsSnapshot/the heartbeat. Increments are not
 // strictly atomic RMW, which is acceptable for metrics.
@@ -70,6 +78,7 @@ static const int POOL_ALLOCATION_THRESHOLD = 4;
 - (nullable CMSampleBufferRef)copyPendingSampleBufferAtTimeMs:(uint64_t *)timeMs
                                                   orientation:(uint8_t *)orientation;
 - (void)clearPendingSampleBufferLocked;
+- (BOOL)reconfigureForWidth:(NSUInteger)width height:(NSUInteger)height;
 
 @end
 
@@ -108,6 +117,10 @@ static const int POOL_ALLOCATION_THRESHOLD = 4;
       return nil;
     }
     _fps = fps;
+    _bitrate = bitrate > 0 ? bitrate : 6000000;
+    _codec = codec;
+    _configuredWidth = width;
+    _configuredHeight = height;
     _width = width;
     _height = height;
 
@@ -150,7 +163,7 @@ static const int POOL_ALLOCATION_THRESHOLD = 4;
     FBVideoEncoder *encoder = [[FBVideoEncoder alloc] initWithCodec:codec
                                                               width:width
                                                              height:height
-                                                            bitrate:bitrate > 0 ? bitrate : 6000000
+                                                            bitrate:_bitrate
                                                                 fps:fps > 0 ? fps : 30
                                                               error:error];
     if (nil == encoder) {
@@ -372,6 +385,48 @@ static const int POOL_ALLOCATION_THRESHOLD = 4;
     return;
   }
 
+  FBBroadcastDimensions target = FBBroadcastTargetDimensions(self.configuredWidth,
+                                                              self.configuredHeight,
+                                                              CVPixelBufferGetWidth(sourceBuffer),
+                                                              CVPixelBufferGetHeight(sourceBuffer),
+                                                              orientation);
+  if (target.width == self.width && target.height == self.height) {
+    self.failedReconfigureWidth = 0;
+    self.failedReconfigureHeight = 0;
+    self.reconfigureFailureCount = 0;
+    self.nextReconfigureAttemptMs = 0;
+  } else {
+    BOOL targetChanged = target.width != self.failedReconfigureWidth
+      || target.height != self.failedReconfigureHeight;
+    if (targetChanged) {
+      self.failedReconfigureWidth = target.width;
+      self.failedReconfigureHeight = target.height;
+      self.reconfigureFailureCount = 0;
+      self.nextReconfigureAttemptMs = 0;
+    }
+    if (nowMs >= self.nextReconfigureAttemptMs) {
+      if ([self reconfigureForWidth:target.width height:target.height]) {
+        self.failedReconfigureWidth = 0;
+        self.failedReconfigureHeight = 0;
+        self.reconfigureFailureCount = 0;
+        self.nextReconfigureAttemptMs = 0;
+      } else {
+        self.reconfigureFailureCount += 1;
+        uint64_t retryDelayMs = FBBroadcastReconfigureRetryDelayMs(self.reconfigureFailureCount);
+        uint64_t failureCompletedAtMs = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) / NSEC_PER_MSEC;
+        self.nextReconfigureAttemptMs = FBBroadcastReconfigureRetryDeadlineMs(failureCompletedAtMs,
+                                                                              self.reconfigureFailureCount);
+        FBExtLogError("Session %u: cannot reconfigure the encoder for rotation to %lux%lu; keeping %lux%lu and retrying in %llums",
+                      self.sessionId,
+                      (unsigned long)target.width,
+                      (unsigned long)target.height,
+                      (unsigned long)self.width,
+                      (unsigned long)self.height,
+                      (unsigned long long)retryDelayMs);
+      }
+    }
+  }
+
   if (!self.directSourceEncodingDisabled
       && CVPixelBufferGetWidth(sourceBuffer) == self.width
       && CVPixelBufferGetHeight(sourceBuffer) == self.height) {
@@ -414,6 +469,74 @@ static const int POOL_ALLOCATION_THRESHOLD = 4;
     FBExtLogError("Session %u: cannot encode a frame: %{public}@", self.sessionId, error.description);
   }
   CVPixelBufferRelease(scaledBuffer);
+}
+
+- (BOOL)reconfigureForWidth:(NSUInteger)width height:(NSUInteger)height
+{
+  VTPixelTransferSessionRef transferSession = NULL;
+  OSStatus transferStatus = VTPixelTransferSessionCreate(kCFAllocatorDefault, &transferSession);
+  if (transferStatus != noErr || NULL == transferSession) {
+    return NO;
+  }
+  VTSessionSetProperty(transferSession, kVTPixelTransferPropertyKey_ScalingMode, kVTScalingMode_Letterbox);
+  VTSessionSetProperty(transferSession, kVTPixelTransferPropertyKey_RealTime, kCFBooleanTrue);
+
+  NSDictionary *pixelBufferAttributes = @{
+    (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
+    (id)kCVPixelBufferWidthKey: @(width),
+    (id)kCVPixelBufferHeightKey: @(height),
+    (id)kCVPixelBufferIOSurfacePropertiesKey: @{},
+  };
+  NSDictionary *poolAttributes = @{(id)kCVPixelBufferPoolMinimumBufferCountKey: @(POOL_ALLOCATION_THRESHOLD)};
+  CVPixelBufferPoolRef bufferPool = NULL;
+  CVReturn poolStatus = CVPixelBufferPoolCreate(kCFAllocatorDefault,
+                                                 (__bridge CFDictionaryRef)poolAttributes,
+                                                 (__bridge CFDictionaryRef)pixelBufferAttributes,
+                                                 &bufferPool);
+  if (poolStatus != kCVReturnSuccess || NULL == bufferPool) {
+    VTPixelTransferSessionInvalidate(transferSession);
+    CFRelease(transferSession);
+    return NO;
+  }
+
+  NSError *error;
+  FBVideoEncoder *encoder = [[FBVideoEncoder alloc] initWithCodec:self.codec
+                                                           width:width
+                                                          height:height
+                                                         bitrate:self.bitrate
+                                                             fps:self.fps > 0 ? self.fps : 30
+                                                           error:&error];
+  if (nil == encoder) {
+    CVPixelBufferPoolRelease(bufferPool);
+    VTPixelTransferSessionInvalidate(transferSession);
+    CFRelease(transferSession);
+    return NO;
+  }
+
+  FBVideoEncoder *previousEncoder = self.encoder;
+  previousEncoder.delegate = nil;
+  [previousEncoder stop];
+  if (NULL != _repeatBuffer) {
+    CVPixelBufferRelease(_repeatBuffer);
+    _repeatBuffer = NULL;
+  }
+  [self releaseScalerResources];
+
+  self.transferSession = transferSession;
+  self.bufferPool = bufferPool;
+  self.width = width;
+  self.height = height;
+  self.directSourceEncodingDisabled = NO;
+  self.lastSentParameterSets = nil;
+  self.lastEncodeAtMs = 0;
+  self.encoder = encoder;
+  encoder.delegate = self;
+  [encoder requestKeyFrame];
+  FBExtLogInfo("Session %u: reconfigured video encoder for rotation to %lux%lu",
+               self.sessionId,
+               (unsigned long)width,
+               (unsigned long)height);
+  return YES;
 }
 
 - (void)requestKeyFrame
@@ -500,6 +623,9 @@ static const int POOL_ALLOCATION_THRESHOLD = 4;
            isKeyFrame:(BOOL)isKeyFrame
    presentationTimeUs:(uint64_t)presentationTimeUs
 {
+  if (encoder != self.encoder) {
+    return;
+  }
   self.encodedCount += 1;
   // The frame pts is the monotonic submit time, so callback-time minus pts is the
   // scale+encode latency.

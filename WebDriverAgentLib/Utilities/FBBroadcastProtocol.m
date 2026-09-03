@@ -15,7 +15,7 @@ const uint16_t FBBroadcastDefaultControlPort = 9300;
 
 const uint8_t FBBroadcastFrameFlagKeyFrame = 1 << 0;
 const uint8_t FBBroadcastFrameOrientationShift = 1;
-const uint8_t FBBroadcastFrameOrientationMask = 0x07;
+const uint8_t FBBroadcastFrameOrientationMask = 0x0F;
 
 const uint32_t FBBroadcastAudioSessionIdFlag = 0x80000000u;
 
@@ -39,6 +39,46 @@ NSString *const FBBroadcastKeyChannels = @"channels";
 NSString *const FBBroadcastKeySampleRate = @"sampleRate";
 
 NSString *const FBBroadcastMediaAudio = @"audio";
+
+FBBroadcastDimensions FBBroadcastTargetDimensions(NSUInteger configuredWidth,
+                                                   NSUInteger configuredHeight,
+                                                   NSUInteger sourceBufferWidth,
+                                                   NSUInteger sourceBufferHeight,
+                                                   uint8_t orientation)
+{
+  BOOL swapsSourceAxes = orientation >= 5 && orientation <= 8;
+  NSUInteger effectiveWidth = swapsSourceAxes ? sourceBufferHeight : sourceBufferWidth;
+  NSUInteger effectiveHeight = swapsSourceAxes ? sourceBufferWidth : sourceBufferHeight;
+  if (effectiveWidth == 0 || effectiveHeight == 0) {
+    return (FBBroadcastDimensions){configuredWidth, configuredHeight};
+  }
+
+  NSUInteger shortSide = MIN(configuredWidth, configuredHeight);
+  NSUInteger longSide = MAX(configuredWidth, configuredHeight);
+  return effectiveWidth > effectiveHeight
+    ? (FBBroadcastDimensions){longSide, shortSide}
+    : (FBBroadcastDimensions){shortSide, longSide};
+}
+
+uint64_t FBBroadcastReconfigureRetryDelayMs(NSUInteger failureCount)
+{
+  if (failureCount == 0) {
+    return 0;
+  }
+  if (failureCount >= 6) {
+    return 5000;
+  }
+  return MIN((uint64_t)250 << (failureCount - 1), (uint64_t)5000);
+}
+
+uint64_t FBBroadcastReconfigureRetryDeadlineMs(uint64_t failureCompletedAtMs,
+                                               NSUInteger failureCount)
+{
+  uint64_t delayMs = FBBroadcastReconfigureRetryDelayMs(failureCount);
+  return UINT64_MAX - failureCompletedAtMs < delayMs
+    ? UINT64_MAX
+    : failureCompletedAtMs + delayMs;
+}
 
 NSString *const FBBroadcastCodecH264 = @"h264";
 NSString *const FBBroadcastCodecH265 = @"h265";

@@ -8,6 +8,7 @@
 
 #import <XCTest/XCTest.h>
 
+#import "FBBroadcastProtocol.h"
 #import "FBScrcpyPacket.h"
 #import "FBVideoStreamSession.h"
 
@@ -95,6 +96,76 @@ static const uint64_t kPtsMask      = ~(((uint64_t)1 << 63) | ((uint64_t)1 << 62
   XCTAssertFalse(isKeyFrame);
   XCTAssertEqual(pts, 0u);
   XCTAssertEqualObjects(payload, parameterSets);
+}
+
+- (void)testBroadcastTargetSizeFollowsEffectiveFrameOrientation
+{
+  // ReplayKit keeps a portrait-shaped pixel buffer for this landscape frame
+  // and carries the clockwise rotation in RPVideoSampleOrientationKey.
+  FBBroadcastDimensions landscape = FBBroadcastTargetDimensions(1278, 588, 1170, 2532, 6);
+  XCTAssertEqual(landscape.width, (NSUInteger)1278);
+  XCTAssertEqual(landscape.height, (NSUInteger)588);
+  FBBroadcastDimensions otherLandscape = FBBroadcastTargetDimensions(1278, 588, 1170, 2532, 8);
+  XCTAssertEqual(otherLandscape.width, (NSUInteger)1278);
+  XCTAssertEqual(otherLandscape.height, (NSUInteger)588);
+
+  // Enabling portrait lock changes only the orientation attachment. The
+  // encoder footprint must cross axes or WebRTC keeps reporting landscape.
+  FBBroadcastDimensions portrait = FBBroadcastTargetDimensions(1278, 588, 1170, 2532, 1);
+  XCTAssertEqual(portrait.width, (NSUInteger)588);
+  XCTAssertEqual(portrait.height, (NSUInteger)1278);
+}
+
+- (void)testBroadcastTargetSizeFallsBackToBufferAspectForUnknownOrientation
+{
+  FBBroadcastDimensions landscape = FBBroadcastTargetDimensions(588, 1278, 2532, 1170, 0);
+  XCTAssertEqual(landscape.width, (NSUInteger)1278);
+  XCTAssertEqual(landscape.height, (NSUInteger)588);
+}
+
+- (void)testBroadcastFrameProtocolPreservesExifOrientationEight
+{
+  NSData *picture = [@"frame" dataUsingEncoding:NSUTF8StringEncoding];
+  NSData *message = FBBroadcastEncodeVideoFrameMessage(42, 123, YES, 8, picture);
+
+  FBBroadcastMessageHeader header;
+  NSData *headerData = [message subdataWithRange:NSMakeRange(0, FBBroadcastHeaderLength)];
+  XCTAssertTrue(FBBroadcastParseHeader(headerData, &header));
+  XCTAssertEqual(header.type, (uint8_t)FBBroadcastMessageTypeVideoFrame);
+  XCTAssertEqual(header.sessionId, (uint32_t)42);
+  NSData *payload = [message subdataWithRange:NSMakeRange(FBBroadcastHeaderLength, header.payloadLength)];
+
+  uint64_t pts = 0;
+  BOOL key = NO;
+  uint8_t orientation = 0;
+  NSData *decoded = nil;
+  XCTAssertTrue(FBBroadcastParseVideoFramePayload(payload, &pts, &key, &orientation, &decoded));
+  XCTAssertEqual(pts, (uint64_t)123);
+  XCTAssertTrue(key);
+  XCTAssertEqual(orientation, (uint8_t)8);
+  XCTAssertEqualObjects(decoded, picture);
+}
+
+- (void)testBroadcastEncoderReconfigurationRetryBackoffIsBounded
+{
+  XCTAssertEqual(FBBroadcastReconfigureRetryDelayMs(1), (uint64_t)250);
+  XCTAssertEqual(FBBroadcastReconfigureRetryDelayMs(2), (uint64_t)500);
+  XCTAssertEqual(FBBroadcastReconfigureRetryDelayMs(3), (uint64_t)1000);
+  XCTAssertEqual(FBBroadcastReconfigureRetryDelayMs(4), (uint64_t)2000);
+  XCTAssertEqual(FBBroadcastReconfigureRetryDelayMs(5), (uint64_t)4000);
+  XCTAssertEqual(FBBroadcastReconfigureRetryDelayMs(6), (uint64_t)5000);
+  XCTAssertEqual(FBBroadcastReconfigureRetryDelayMs(100), (uint64_t)5000);
+}
+
+- (void)testBroadcastEncoderReconfigurationRetryStartsAfterSlowFailureCompletes
+{
+  uint64_t attemptStartedAtMs = 1000;
+  uint64_t failureCompletedAtMs = 6000;
+  uint64_t deadlineMs = FBBroadcastReconfigureRetryDeadlineMs(failureCompletedAtMs, 1);
+
+  XCTAssertEqual(deadlineMs, (uint64_t)6250);
+  XCTAssertLessThan(attemptStartedAtMs + FBBroadcastReconfigureRetryDelayMs(1), deadlineMs);
+  XCTAssertLessThan(failureCompletedAtMs, deadlineMs);
 }
 
 // A large timestamp must survive the flag bits untouched (and vice versa).
