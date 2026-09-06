@@ -1,3 +1,9 @@
+## [16.12.4](https://github.com/appium/WebDriverAgent/compare/v16.12.3...v16.12.4) (2026-09-06)
+
+### Miscellaneous Chores
+
+* add coordinate screen in the integration app ([#1251](https://github.com/appium/WebDriverAgent/issues/1251)) ([de6acac](https://github.com/appium/WebDriverAgent/commit/de6acac7ebbaf70915f0c09093e3a12623efcea2))
+
 ## [16.12.3](https://github.com/appium/WebDriverAgent/compare/v16.12.2...v16.12.3) (2026-09-04)
 
 ### Bug Fixes
