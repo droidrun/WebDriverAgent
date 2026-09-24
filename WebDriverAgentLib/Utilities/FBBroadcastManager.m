@@ -29,6 +29,26 @@
 NSErrorDomain const FBBroadcastManagerErrorDomain = @"com.facebook.WebDriverAgent.FBBroadcastManager";
 
 #if !TARGET_OS_SIMULATOR && !TARGET_OS_TV
+// Keys of the ReplayKit strings the system broadcast UI renders. The confirmation sheet's button
+// and the stale "Screen Broadcasting" alert are system UI rendered in the SYSTEM language, so
+// their labels are resolved from ReplayKit's own localization tables rather than hardcoded.
+static NSString *const FBReplayKitKeyStartBroadcast = @"CONTROL_CENTER_START_BROADCAST";
+static NSString *const FBReplayKitKeyAlertOK = @"BROADCAST_FAILED_ALERT_OK_BUTTON";
+static NSString *const FBReplayKitKeyAlertGoToApp = @"BROADCAST_FAILED_ALERT_GO_TO_APP_BUTTON";
+
+// Caller-supplied labels first, then the system's own label in every ReplayKit localization,
+// then the English label as a last resort for iOS versions whose tables lack the key.
+static NSArray<NSString *> *FBBroadcastLabels(NSArray<NSString *> *_Nullable callerLabels,
+                                              NSString *replayKitKey,
+                                              NSString *englishLabel)
+{
+  NSMutableOrderedSet<NSString *> *labels = [NSMutableOrderedSet orderedSet];
+  [labels addObjectsFromArray:callerLabels ?: @[]];
+  [labels addObjectsFromArray:[FBBroadcastManager replayKitLabelsForKey:replayKitKey]];
+  [labels addObject:englishLabel];
+  return labels.array;
+}
+
 static const NSTimeInterval FOREGROUND_TIMEOUT = 5.0;
 static const NSTimeInterval CONFIRM_BUTTON_TIMEOUT = 10.0;
 // The picker press is dropped silently by the system when it fires before the scene is fully
@@ -108,10 +128,11 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
 // structurally, not by its (localized) title: exactly two buttons, of which exactly one matches
 // dismissLabels and the OTHER matches goToAppLabels - the second button anchors the alert's
 // identity, since "exactly one of two buttons matches the dismiss labels" alone still matches
-// unrelated two-button prompts (e.g. "Settings" / "OK"). Both label lists are localizable via
-// the request arguments. Anything else - including two-button alerts whose second button is
-// unrecognized - is left alone; misfiring on an unrelated system dialog would silently
-// acknowledge it, which is worse than letting the dance time out.
+// unrelated two-button prompts (e.g. "Settings" / "OK"). Both label lists cover every ReplayKit
+// localization (see FBBroadcastLabels) plus any request-supplied labels. Anything else -
+// including two-button alerts whose second button is unrecognized - is left alone; misfiring on
+// an unrelated system dialog would silently acknowledge it, which is worse than letting the
+// dance time out.
 - (nullable XCUIElement *)matchingDismissButtonForAlertWithDismissLabels:(NSArray<NSString *> *)dismissLabels
                                                     goToApplicationLabels:(NSArray<NSString *> *)goToAppLabels;
 // Dismisses the alert matched by matchingDismissButtonForAlertWithDismissLabels:goToApplicationLabels:
@@ -142,6 +163,76 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
     instance = [[self alloc] init];
   });
   return instance;
+}
+
++ (NSArray<NSString *> *)replayKitLabelsForKey:(NSString *)key
+{
+  static NSMutableDictionary<NSString *, NSArray<NSString *> *> *cache;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    cache = [NSMutableDictionary dictionary];
+  });
+  @synchronized (cache) {
+    NSArray<NSString *> *cached = cache[key];
+    if (nil != cached) {
+      return cached;
+    }
+    NSArray<NSString *> *labels = [self loadReplayKitLabelsForKey:key];
+    cache[key] = labels;
+    return labels;
+  }
+}
+
++ (NSArray<NSString *> *)loadReplayKitLabelsForKey:(NSString *)key
+{
+  // RPScreenRecorder exists on every platform ReplayKit does, unlike the picker view.
+  Class anchorClass = NSClassFromString(@"RPScreenRecorder");
+  NSBundle *bundle = nil == anchorClass ? nil : [NSBundle bundleForClass:anchorClass];
+  if (nil == bundle || bundle == NSBundle.mainBundle) {
+    [FBLogger logFmt:@"broadcast: the ReplayKit bundle is unavailable; cannot resolve the localized '%@' labels", key];
+    return @[];
+  }
+  // Probe the device's preferred localizations first, then every other one: the system UI can
+  // be rendered in a different language than the runner's own preferences (e.g. a per-app
+  // language override), and every localization's string is distinct UI text anyway.
+  NSMutableOrderedSet<NSString *> *localizations = [NSMutableOrderedSet orderedSet];
+  [localizations addObjectsFromArray:[NSBundle preferredLocalizationsFromArray:bundle.localizations
+                                                                 forPreferences:NSLocale.preferredLanguages]];
+  [localizations addObjectsFromArray:bundle.localizations];
+
+  NSMutableOrderedSet<NSString *> *labels = [NSMutableOrderedSet orderedSet];
+  for (NSString *localization in localizations) {
+    NSString *path = [bundle pathForResource:@"Localizable"
+                                      ofType:@"strings"
+                                 inDirectory:nil
+                             forLocalization:localization];
+    NSDictionary *table = nil == path ? nil : [NSDictionary dictionaryWithContentsOfFile:path];
+    id label = table[key];
+    if ([label isKindOfClass:NSString.class] && [(NSString *)label length] > 0) {
+      [labels addObject:label];
+    }
+  }
+  // Newer system frameworks may ship a single .loctable (localization -> table) instead of
+  // per-language .lproj directories.
+  NSString *loctablePath = [bundle pathForResource:@"Localizable" ofType:@"loctable"];
+  NSDictionary *loctable = nil == loctablePath ? nil : [NSDictionary dictionaryWithContentsOfFile:loctablePath];
+  if (nil != loctable) {
+    NSMutableOrderedSet<NSString *> *loctableLocalizations = [NSMutableOrderedSet orderedSet];
+    [loctableLocalizations addObjectsFromArray:[NSBundle preferredLocalizationsFromArray:loctable.allKeys
+                                                                           forPreferences:NSLocale.preferredLanguages]];
+    [loctableLocalizations addObjectsFromArray:loctable.allKeys];
+    for (NSString *localization in loctableLocalizations) {
+      id table = loctable[localization];
+      id label = [table isKindOfClass:NSDictionary.class] ? ((NSDictionary *)table)[key] : nil;
+      if ([label isKindOfClass:NSString.class] && [(NSString *)label length] > 0) {
+        [labels addObject:label];
+      }
+    }
+  }
+  if (0 == labels.count) {
+    [FBLogger logFmt:@"broadcast: ReplayKit has no localized '%@' labels", key];
+  }
+  return labels.array;
 }
 
 - (BOOL)isExtensionConnected
@@ -271,8 +362,8 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
                     restoreForegroundApp:(BOOL)restoreForegroundApp
                                    error:(NSError **)error
 {
-  NSArray<NSString *> *dismissLabels = dismissButtonLabels.count > 0 ? dismissButtonLabels : @[@"OK"];
-  NSArray<NSString *> *goToAppLabels = goToApplicationButtonLabels.count > 0 ? goToApplicationButtonLabels : @[@"Go to Application"];
+  NSArray<NSString *> *dismissLabels = FBBroadcastLabels(dismissButtonLabels, FBReplayKitKeyAlertOK, @"OK");
+  NSArray<NSString *> *goToAppLabels = FBBroadcastLabels(goToApplicationButtonLabels, FBReplayKitKeyAlertGoToApp, @"Go to Application");
 
   // The screen may already be captured by a live broadcast even though the extension is not
   // connected (it crashed, or it is between TCP reconnect attempts). Driving the picker on top
@@ -383,7 +474,8 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
 
   // The confirmation sheet is hosted by different processes depending on the iOS version, so
   // look for the confirm button in both the system app and the runner itself.
-  NSArray<NSString *> *labels = confirmButtonLabels.count > 0 ? confirmButtonLabels : @[@"Start Broadcast"];
+  NSArray<NSString *> *labels = FBBroadcastLabels(confirmButtonLabels, FBReplayKitKeyStartBroadcast, @"Start Broadcast");
+  NSPredicate *labelPredicate = [NSPredicate predicateWithFormat:@"label IN %@", labels];
   NSArray<XCUIApplication *> *candidateApps = @[XCUIApplication.fb_systemApplication, runner];
   __block BOOL confirmButtonFound = NO;
   __block CGRect confirmFrame = CGRectZero;
@@ -394,14 +486,14 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
       return NO;
     }
     for (XCUIApplication *app in candidateApps) {
-      for (NSString *label in labels) {
-        XCUIElement *candidate = app.buttons[label];
-        if (candidate.exists) {
-          confirmFrame = candidate.frame;
-          confirmButtonFound = YES;
-          return YES;
-        }
+      // One query for all localized labels instead of one existence probe per label.
+      XCUIElement *candidate = [app.buttons matchingPredicate:labelPredicate].firstMatch;
+      if (candidate.exists) {
+        confirmFrame = candidate.frame;
+        confirmButtonFound = YES;
+        return YES;
       }
+      // Last resort for English UIs whose button text the tables above do not cover.
       XCUIElement *prefixMatch = [app.buttons matchingPredicate:[NSPredicate predicateWithFormat:@"label BEGINSWITH[c] 'Start'"]].firstMatch;
       if (prefixMatch.exists) {
         confirmFrame = prefixMatch.frame;
@@ -422,7 +514,7 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
     if (error) {
       *error = [NSError errorWithDomain:FBBroadcastManagerErrorDomain
                                    code:FBBroadcastManagerErrorTimeout
-                               userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"The broadcast confirmation sheet did not show a button labeled %@ within %.0fs. Pass 'confirmButtonLabels' if the device language is not English", [labels componentsJoinedByString:@"/"], CONFIRM_BUTTON_TIMEOUT]}];
+                               userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"The broadcast confirmation sheet did not show a button labeled '%@' (or any of its %lu known variants) within %.0fs. Pass 'confirmButtonLabels' with the button's exact label if it differs", labels.firstObject, (unsigned long)labels.count, CONFIRM_BUTTON_TIMEOUT]}];
     }
     return NO;
   }
@@ -466,10 +558,11 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
 // structurally, not by its (localized) title: exactly two buttons, of which exactly one matches
 // dismissLabels and the OTHER matches goToAppLabels - the second button anchors the alert's
 // identity, since "exactly one of two buttons matches the dismiss labels" alone still matches
-// unrelated two-button prompts (e.g. "Settings" / "OK"). Both label lists are localizable via
-// the request arguments. Anything else - including two-button alerts whose second button is
-// unrecognized - is left alone; misfiring on an unrelated system dialog would silently
-// acknowledge it, which is worse than letting the dance time out.
+// unrelated two-button prompts (e.g. "Settings" / "OK"). Both label lists cover every ReplayKit
+// localization (see FBBroadcastLabels) plus any request-supplied labels. Anything else -
+// including two-button alerts whose second button is unrecognized - is left alone; misfiring on
+// an unrelated system dialog would silently acknowledge it, which is worse than letting the
+// dance time out.
 - (nullable XCUIElement *)matchingDismissButtonForAlertWithDismissLabels:(NSArray<NSString *> *)dismissLabels
                                                     goToApplicationLabels:(NSArray<NSString *> *)goToAppLabels
 {
@@ -580,8 +673,8 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
                                         error:(NSError **)error
 {
 #if !TARGET_OS_SIMULATOR && !TARGET_OS_TV
-  NSArray<NSString *> *dismissLabels = dismissButtonLabels.count > 0 ? dismissButtonLabels : @[@"OK"];
-  NSArray<NSString *> *goToAppLabels = goToApplicationButtonLabels.count > 0 ? goToApplicationButtonLabels : @[@"Go to Application"];
+  NSArray<NSString *> *dismissLabels = FBBroadcastLabels(dismissButtonLabels, FBReplayKitKeyAlertOK, @"OK");
+  NSArray<NSString *> *goToAppLabels = FBBroadcastLabels(goToApplicationButtonLabels, FBReplayKitKeyAlertGoToApp, @"Go to Application");
 #endif
   if (!self.isExtensionConnected) {
 #if !TARGET_OS_SIMULATOR && !TARGET_OS_TV

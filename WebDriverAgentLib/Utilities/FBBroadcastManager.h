@@ -39,6 +39,18 @@ typedef NS_ERROR_ENUM(FBBroadcastManagerErrorDomain, FBBroadcastManagerError) {
 /** YES while the broadcast extension is connected to the control server. */
 @property (nonatomic, readonly) BOOL isExtensionConnected;
 
+/**
+ Every localized variant ReplayKit ships for one of its UI strings, e.g.
+ "CONTROL_CENTER_START_BROADCAST" ("Start Broadcast", "Übertragung starten", ...). The device's
+ preferred localizations come first; the set covers all languages so that matching does not
+ depend on which language the system UI is currently rendered in. Resolved from the ReplayKit
+ framework's own localization tables once per key and cached.
+
+ @param key The key in ReplayKit's Localizable strings table
+ @return The distinct non-empty labels, or an empty array when ReplayKit or the key is unavailable
+ */
++ (NSArray<NSString *> *)replayKitLabelsForKey:(NSString *)key;
+
 /** Starts the loopback control server. Safe to call multiple times. */
 - (void)startListening;
 
@@ -54,14 +66,16 @@ typedef NS_ERROR_ENUM(FBBroadcastManagerErrorDomain, FBBroadcastManagerError) {
  for the extension to connect. Must be called on the main thread. Idempotent while connected.
 
  @param timeout The overall time budget in seconds for the broadcast to reach the connected state
- @param confirmButtonLabels Labels to look for on the system confirmation sheet
+ @param confirmButtonLabels Extra labels to look for on the system confirmation sheet, in
+ addition to the "Start Broadcast" label in every language ReplayKit is localized for
  @param dismissButtonLabels Labels for dismissing the system's stale "Screen Broadcasting" alert
  that SpringBoard posts whenever a broadcast ends, which otherwise blocks the picker dance from
- completing. Defaults to ["OK"] when empty/nil
+ completing. Added to the alert's "OK" label in every language ReplayKit is localized for
  @param goToApplicationButtonLabels Labels for the alert's other button. Together with
  dismissButtonLabels this anchors the alert's identity: it is only treated as the Screen
  Broadcasting alert, and auto-dismissed, when one button matches dismissButtonLabels and the
- other matches this list. Defaults to ["Go to Application"] when empty/nil
+ other matches this list. Added to the alert's "Go to Application" label in every language
+ ReplayKit is localized for
  @param restoreForegroundApp YES to re-activate the previously active application afterwards
  @param error If there is an error, upon return contains an NSError describing the problem
  @return NO in case of a failure
@@ -89,12 +103,13 @@ typedef NS_ERROR_ENUM(FBBroadcastManagerErrorDomain, FBBroadcastManagerError) {
  best-effort attempt to dismiss the system's stale "Screen Broadcasting" alert that SpringBoard
  posts once the broadcast ends. Idempotent when no broadcast is running.
 
- @param dismissButtonLabels Labels for dismissing the system's stale "Screen Broadcasting" alert.
- Defaults to ["OK"] when empty/nil
+ @param dismissButtonLabels Extra labels for dismissing the system's stale "Screen Broadcasting"
+ alert, added to its "OK" label in every language ReplayKit is localized for
  @param goToApplicationButtonLabels Labels for the alert's other button. Together with
  dismissButtonLabels this anchors the alert's identity: it is only treated as the Screen
  Broadcasting alert, and auto-dismissed, when one button matches dismissButtonLabels and the
- other matches this list. Defaults to ["Go to Application"] when empty/nil
+ other matches this list. Added to the alert's "Go to Application" label in every language
+ ReplayKit is localized for
  @param error If there is an error, upon return contains an NSError describing the problem
  @return NO in case of a failure. The alert-dismissal attempt is best-effort and never causes
  this to return NO by itself

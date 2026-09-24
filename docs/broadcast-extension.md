@@ -26,28 +26,31 @@ the legacy screenshot pipeline; each session reports its current origin via the 
 ```json
 {
   "timeout": 30,
-  "confirmButtonLabels": ["Start Broadcast"],
-  "dismissButtonLabels": ["OK"],
-  "goToApplicationButtonLabels": ["Go to Application"],
+  "confirmButtonLabels": [],
+  "dismissButtonLabels": [],
+  "goToApplicationButtonLabels": [],
   "restoreForegroundApp": true
 }
 ```
 
+The system UI driven by the start dance is matched in any device language: WDA reads the button
+labels ("Start Broadcast", and the "Screen Broadcasting" alert's "OK" / "Go to Application")
+from ReplayKit's own localization tables at runtime, in every language iOS ships. The label
+arguments below are only needed if a future iOS renames those strings; they are matched in
+addition to the system labels, never instead of them.
+
 - `timeout` — seconds to wait for the extension to connect (covers the system's 3-2-1 countdown).
-- `confirmButtonLabels` — labels to look for on the system confirmation sheet. Pass the
-  localized label when the device language is not English (a button starting with "Start" is
-  used as fallback).
-- `dismissButtonLabels` — labels of the button that dismisses the system's "Screen Broadcasting"
-  alert left behind by a previous broadcast's end (SpringBoard posts this on iOS 26 whenever a
-  broadcast terminates, and it otherwise blocks the picker dance). Defaults to `["OK"]`. Pass the
-  localized label when the device language is not English. Also accepted by `broadcast/stop`.
-- `goToApplicationButtonLabels` — labels of the alert's other button. Defaults to
-  `["Go to Application"]`. Together, `dismissButtonLabels` and `goToApplicationButtonLabels`
-  identify the system's "Screen Broadcasting" alert: it is only auto-dismissed when one button
-  matches `dismissButtonLabels` and the other matches `goToApplicationButtonLabels` — this
-  second-button check is what keeps the auto-dismiss from firing on an unrelated two-button
-  system prompt. Pass the localized label when the device language is not English. Also accepted
-  by `broadcast/stop`.
+- `confirmButtonLabels` — extra labels to look for on the system confirmation sheet (an
+  English button starting with "Start" is used as a last-resort fallback).
+- `dismissButtonLabels` — extra labels of the button that dismisses the system's "Screen
+  Broadcasting" alert left behind by a previous broadcast's end (SpringBoard posts this whenever
+  a broadcast terminates, and it otherwise blocks the picker dance). Also accepted by
+  `broadcast/stop`.
+- `goToApplicationButtonLabels` — extra labels of the alert's other button. Together, the
+  dismiss and go-to-application labels identify the system's "Screen Broadcasting" alert: it is
+  only auto-dismissed when one button matches a dismiss label and the other a go-to-application
+  label — this second-button check is what keeps the auto-dismiss from firing on an unrelated
+  two-button system prompt. Also accepted by `broadcast/stop`.
 - `restoreForegroundApp` — re-activate the previously active app after the broadcast starts
   (the start dance briefly foregrounds the runner app, ~2-3 s).
 
