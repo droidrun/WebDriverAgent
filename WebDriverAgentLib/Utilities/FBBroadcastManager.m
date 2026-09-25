@@ -37,15 +37,17 @@ static NSString *const FBReplayKitKeyAlertOK = @"BROADCAST_FAILED_ALERT_OK_BUTTO
 static NSString *const FBReplayKitKeyAlertGoToApp = @"BROADCAST_FAILED_ALERT_GO_TO_APP_BUTTON";
 
 // Caller-supplied labels first, then the system's own label in every ReplayKit localization,
-// then the English label as a last resort for iOS versions whose tables lack the key.
+// then the known English labels as a last resort for iOS versions whose tables lack the key.
+// The key is what stays stable: iOS 27 kept CONTROL_CENTER_START_BROADCAST but renamed its text
+// from "Start Broadcast" to "Start Sharing".
 static NSArray<NSString *> *FBBroadcastLabels(NSArray<NSString *> *_Nullable callerLabels,
                                               NSString *replayKitKey,
-                                              NSString *englishLabel)
+                                              NSArray<NSString *> *englishLabels)
 {
   NSMutableOrderedSet<NSString *> *labels = [NSMutableOrderedSet orderedSet];
   [labels addObjectsFromArray:callerLabels ?: @[]];
   [labels addObjectsFromArray:[FBBroadcastManager replayKitLabelsForKey:replayKitKey]];
-  [labels addObject:englishLabel];
+  [labels addObjectsFromArray:englishLabels];
   return labels.array;
 }
 
@@ -362,8 +364,8 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
                     restoreForegroundApp:(BOOL)restoreForegroundApp
                                    error:(NSError **)error
 {
-  NSArray<NSString *> *dismissLabels = FBBroadcastLabels(dismissButtonLabels, FBReplayKitKeyAlertOK, @"OK");
-  NSArray<NSString *> *goToAppLabels = FBBroadcastLabels(goToApplicationButtonLabels, FBReplayKitKeyAlertGoToApp, @"Go to Application");
+  NSArray<NSString *> *dismissLabels = FBBroadcastLabels(dismissButtonLabels, FBReplayKitKeyAlertOK, @[@"OK"]);
+  NSArray<NSString *> *goToAppLabels = FBBroadcastLabels(goToApplicationButtonLabels, FBReplayKitKeyAlertGoToApp, @[@"Go to Application"]);
 
   // The screen may already be captured by a live broadcast even though the extension is not
   // connected (it crashed, or it is between TCP reconnect attempts). Driving the picker on top
@@ -474,7 +476,7 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
 
   // The confirmation sheet is hosted by different processes depending on the iOS version, so
   // look for the confirm button in both the system app and the runner itself.
-  NSArray<NSString *> *labels = FBBroadcastLabels(confirmButtonLabels, FBReplayKitKeyStartBroadcast, @"Start Broadcast");
+  NSArray<NSString *> *labels = FBBroadcastLabels(confirmButtonLabels, FBReplayKitKeyStartBroadcast, @[@"Start Broadcast", @"Start Sharing"]);
   NSPredicate *labelPredicate = [NSPredicate predicateWithFormat:@"label IN %@", labels];
   NSArray<XCUIApplication *> *candidateApps = @[XCUIApplication.fb_systemApplication, runner];
   __block BOOL confirmButtonFound = NO;
@@ -673,8 +675,8 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
                                         error:(NSError **)error
 {
 #if !TARGET_OS_SIMULATOR && !TARGET_OS_TV
-  NSArray<NSString *> *dismissLabels = FBBroadcastLabels(dismissButtonLabels, FBReplayKitKeyAlertOK, @"OK");
-  NSArray<NSString *> *goToAppLabels = FBBroadcastLabels(goToApplicationButtonLabels, FBReplayKitKeyAlertGoToApp, @"Go to Application");
+  NSArray<NSString *> *dismissLabels = FBBroadcastLabels(dismissButtonLabels, FBReplayKitKeyAlertOK, @[@"OK"]);
+  NSArray<NSString *> *goToAppLabels = FBBroadcastLabels(goToApplicationButtonLabels, FBReplayKitKeyAlertGoToApp, @[@"Go to Application"]);
 #endif
   if (!self.isExtensionConnected) {
 #if !TARGET_OS_SIMULATOR && !TARGET_OS_TV
