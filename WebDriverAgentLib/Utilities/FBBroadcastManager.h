@@ -41,7 +41,8 @@ typedef NS_ERROR_ENUM(FBBroadcastManagerErrorDomain, FBBroadcastManagerError) {
 
 /**
  Every localized variant ReplayKit ships for one of its UI strings, e.g.
- "CONTROL_CENTER_START_BROADCAST" ("Start Broadcast", "Übertragung starten", ...). The device's
+ "CONTROL_CENTER_START_BROADCAST" ("Start Broadcast", "Übertragung starten", ...; "Start
+ Sharing", "Jetzt teilen", ... since iOS 27). The device's
  preferred localizations come first; the set covers all languages so that matching does not
  depend on which language the system UI is currently rendered in. Resolved from the ReplayKit
  framework's own localization tables once per key and cached.

@@ -18,10 +18,12 @@
 - (void)testStartBroadcastLabelCoversNonEnglishLanguages
 {
   NSArray<NSString *> *labels = [FBBroadcastManager replayKitLabelsForKey:@"CONTROL_CENTER_START_BROADCAST"];
-  XCTAssertTrue([labels containsObject:@"Start Broadcast"]);
+  // iOS 27 kept the key but renamed the button ("Start Broadcast" -> "Start Sharing"), which is
+  // exactly why the labels are resolved by key rather than hardcoded.
+  XCTAssertTrue([labels containsObject:@"Start Broadcast"] || [labels containsObject:@"Start Sharing"]);
   // The German label does not start with "Start" - the case that broke the old prefix matching.
-  XCTAssertTrue([labels containsObject:@"Übertragung starten"]);
-  XCTAssertTrue([labels containsObject:@"开始直播"]);
+  XCTAssertTrue([labels containsObject:@"Übertragung starten"] || [labels containsObject:@"Jetzt teilen"]);
+  XCTAssertTrue([labels containsObject:@"开始直播"] || [labels containsObject:@"开始共享"]);
   XCTAssertEqual(labels.count, [NSSet setWithArray:labels].count);
 }
 
