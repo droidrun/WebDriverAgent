@@ -34,8 +34,9 @@ the legacy screenshot pipeline; each session reports its current origin via the 
 ```
 
 The system UI driven by the start dance is matched in any device language: WDA reads the button
-labels ("Start Broadcast", and the "Screen Broadcasting" alert's "OK" / "Go to Application")
-from ReplayKit's own localization tables at runtime, in every language iOS ships. The label
+labels ("Start Broadcast" - "Start Sharing" since iOS 27 - and the "Screen Broadcasting"
+alert's "OK" / "Go to Application") from ReplayKit's own localization tables at runtime, in
+every language iOS ships. The label
 arguments below are only needed if a future iOS renames those strings; they are matched in
 addition to the system labels, never instead of them.
 
