@@ -8,6 +8,11 @@ name: Prebuild & Publish WDA
 #
 # Builds are unsigned (CODE_SIGNING_ALLOWED=NO in Scripts/ci/build-*.sh); the
 # runner is signed at install time.
+#
+# WebDriverAgentRunnerTunnel-Runner.zip is the same runner with the
+# WebDriverAgentTunnel packet-tunnel extension embedded next to the broadcast
+# extension. Install-time signers must provision it with the
+# packet-tunnel-provider entitlement (Network Extensions on the Apple team).
 
 on:
   release:
@@ -35,6 +40,13 @@ jobs:
             derived_data: appium_wda_ios
             wd: appium_wda_ios/Build/Products/Debug-iphoneos
             zip: WebDriverAgentRunner-Runner.zip
+          - scheme: WebDriverAgentRunnerTunnel
+            destination: generic/platform=iOS
+            derived_data: appium_wda_ios_tunnel
+            wd: appium_wda_ios_tunnel/Build/Products/Debug-iphoneos
+            app: WebDriverAgentRunner-Runner.app
+            zip: WebDriverAgentRunnerTunnel-Runner.zip
+            tunnel: true
           - scheme: WebDriverAgentRunner_tvOS
             destination: generic/platform=tvOS
             derived_data: appium_wda_tvos
@@ -43,9 +55,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # The tunnel extension links hev-socks5-tunnel from a submodule.
+          submodules: ${{ matrix.tunnel && 'recursive' || 'false' }}
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "${{ env.XCODE_VERSION }}"
+      - name: Build tunnel engine
+        if: ${{ matrix.tunnel }}
+        run: Scripts/build-hev-socks5-tunnel.sh
       - name: Build & zip ${{ matrix.scheme }}-Runner.app
         # Retried because simulator/device enumeration on fresh runners is
         # flaky (same reason the upstream Release workflow retries).
@@ -59,7 +77,18 @@ jobs:
             export DESTINATION="${{ matrix.destination }}"
             export WD="${{ matrix.wd }}"
             export ZIP_PKG_NAME="${{ matrix.zip }}"
+            export APP_NAME="${{ matrix.app }}"
             sh "$GITHUB_WORKSPACE/Scripts/ci/build-real.sh"
+      - name: Verify tunnel extension is embedded
+        if: ${{ matrix.tunnel }}
+        run: |
+          set -euo pipefail
+          # Capture first: `unzip | grep -q` would SIGPIPE unzip under pipefail.
+          listing=$(unzip -l "${{ matrix.zip }}")
+          for appex in WebDriverAgentTunnel WebDriverAgentBroadcast; do
+            grep -Fq "${{ matrix.app }}/PlugIns/$appex.appex/Info.plist" <<< "$listing" || {
+              echo "::error::$appex.appex missing from ${{ matrix.zip }}"; exit 1; }
+          done
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
