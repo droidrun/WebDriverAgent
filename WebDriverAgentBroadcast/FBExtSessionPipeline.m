@@ -49,6 +49,14 @@ static const int POOL_ALLOCATION_THRESHOLD = 4;
 @property (atomic) BOOL active;
 @property (atomic) uint8_t currentOrientation;
 @property (nonatomic) BOOL directSourceEncodingDisabled;
+/** VTPixelRotationSessionRef (iOS 16+), created on the first rotated frame. */
+@property (nonatomic, nullable) CFTypeRef rotationSession;
+/** The rotation currently set on rotationSession. */
+@property (nonatomic) FBBroadcastRotation sessionRotation;
+/** Encoder-sized buffers in the un-rotated orientation, the rotation session's input. */
+@property (nonatomic, nullable) CVPixelBufferPoolRef unrotatedPool;
+@property (nonatomic) NSUInteger unrotatedWidth;
+@property (nonatomic) NSUInteger unrotatedHeight;
 @property (nonatomic, nullable, copy) NSData *lastSentParameterSets;
 @property (nonatomic) NSUInteger failedReconfigureWidth;
 @property (nonatomic) NSUInteger failedReconfigureHeight;
@@ -427,7 +435,15 @@ static const int POOL_ALLOCATION_THRESHOLD = 4;
     }
   }
 
+  // ReplayKit buffers stay portrait-shaped; the orientation attachment says how to turn them.
+  // Without the turn, a landscape frame is letterboxed sideways into the swapped footprint.
+  FBBroadcastRotation rotation = FBBroadcastRotationNone;
+  if (@available(iOS 16.0, *)) {
+    rotation = FBBroadcastFrameRotation(orientation);
+  }
+
   if (!self.directSourceEncodingDisabled
+      && rotation == FBBroadcastRotationNone
       && CVPixelBufferGetWidth(sourceBuffer) == self.width
       && CVPixelBufferGetHeight(sourceBuffer) == self.height) {
     NSError *error;
@@ -454,9 +470,10 @@ static const int POOL_ALLOCATION_THRESHOLD = 4;
     return;
   }
 
-  OSStatus transferStatus = VTPixelTransferSessionTransferImage(self.transferSession, sourceBuffer, scaledBuffer);
-  if (transferStatus != noErr) {
-    FBExtLogError("Session %u: pixel transfer failed (status %d)", self.sessionId, (int)transferStatus);
+  BOOL transferred = rotation == FBBroadcastRotationNone
+    ? [self transferSourceBuffer:sourceBuffer intoBuffer:scaledBuffer]
+    : [self transferSourceBuffer:sourceBuffer intoBuffer:scaledBuffer rotation:rotation];
+  if (!transferred) {
     CVPixelBufferRelease(scaledBuffer);
     return;
   }
@@ -469,6 +486,127 @@ static const int POOL_ALLOCATION_THRESHOLD = 4;
     FBExtLogError("Session %u: cannot encode a frame: %{public}@", self.sessionId, error.description);
   }
   CVPixelBufferRelease(scaledBuffer);
+}
+
+/** Scales sourceBuffer into destination (letterboxed). */
+- (BOOL)transferSourceBuffer:(CVPixelBufferRef)sourceBuffer intoBuffer:(CVPixelBufferRef)destination
+{
+  OSStatus transferStatus = VTPixelTransferSessionTransferImage(self.transferSession, sourceBuffer, destination);
+  if (transferStatus != noErr) {
+    FBExtLogError("Session %u: pixel transfer failed (status %d)", self.sessionId, (int)transferStatus);
+    return NO;
+  }
+  return YES;
+}
+
+/**
+ Scales sourceBuffer into an un-rotated buffer of destination's size (axes swapped for a quarter
+ turn), then rotates that into destination. iOS has no rotating pixel transfer, and a rotation
+ session cannot scale, so the turn runs on the small encoder-sized buffer.
+ */
+- (BOOL)transferSourceBuffer:(CVPixelBufferRef)sourceBuffer
+                  intoBuffer:(CVPixelBufferRef)destination
+                    rotation:(FBBroadcastRotation)rotation API_AVAILABLE(ios(16.0))
+{
+  BOOL quarterTurn = rotation == FBBroadcastRotationClockwise90
+    || rotation == FBBroadcastRotationCounterclockwise90;
+  NSUInteger width = quarterTurn ? self.height : self.width;
+  NSUInteger height = quarterTurn ? self.width : self.height;
+  if (![self prepareRotationForWidth:width height:height rotation:rotation]) {
+    return NO;
+  }
+
+  CVPixelBufferRef unrotatedBuffer = NULL;
+  NSDictionary *auxAttributes = @{(id)kCVPixelBufferPoolAllocationThresholdKey: @(POOL_ALLOCATION_THRESHOLD)};
+  CVReturn poolStatus = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(kCFAllocatorDefault,
+                                                                            self.unrotatedPool,
+                                                                            (__bridge CFDictionaryRef)auxAttributes,
+                                                                            &unrotatedBuffer);
+  if (poolStatus != kCVReturnSuccess || NULL == unrotatedBuffer) {
+    self.droppedPoolCount += 1;
+    return NO;
+  }
+  BOOL rotated = NO;
+  if ([self transferSourceBuffer:sourceBuffer intoBuffer:unrotatedBuffer]) {
+    OSStatus rotateStatus = VTPixelRotationSessionRotateImage((VTPixelRotationSessionRef)self.rotationSession,
+                                                              unrotatedBuffer,
+                                                              destination);
+    if (rotateStatus == noErr) {
+      rotated = YES;
+    } else {
+      FBExtLogError("Session %u: pixel rotation failed (status %d)", self.sessionId, (int)rotateStatus);
+    }
+  }
+  CVPixelBufferRelease(unrotatedBuffer);
+  return rotated;
+}
+
+/**
+ Makes the rotation session and the un-rotated buffer pool match the requested turn and size,
+ recreating only what changed.
+ */
+- (BOOL)prepareRotationForWidth:(NSUInteger)width
+                         height:(NSUInteger)height
+                       rotation:(FBBroadcastRotation)rotation API_AVAILABLE(ios(16.0))
+{
+  if (NULL == self.rotationSession) {
+    VTPixelRotationSessionRef session = NULL;
+    OSStatus status = VTPixelRotationSessionCreate(kCFAllocatorDefault, &session);
+    if (status != noErr || NULL == session) {
+      FBExtLogError("Session %u: cannot create a pixel rotation session (status %d)", self.sessionId, (int)status);
+      return NO;
+    }
+    self.rotationSession = session;
+    self.sessionRotation = FBBroadcastRotationNone;
+  }
+  if (rotation != self.sessionRotation) {
+    CFStringRef value = kVTRotation_0;
+    switch (rotation) {
+      case FBBroadcastRotationClockwise90:
+        value = kVTRotation_CW90;
+        break;
+      case FBBroadcastRotation180:
+        value = kVTRotation_180;
+        break;
+      case FBBroadcastRotationCounterclockwise90:
+        value = kVTRotation_CCW90;
+        break;
+      case FBBroadcastRotationNone:
+        break;
+    }
+    OSStatus status = VTSessionSetProperty(self.rotationSession, kVTPixelRotationPropertyKey_Rotation, value);
+    if (status != noErr) {
+      FBExtLogError("Session %u: cannot set the pixel rotation (status %d)", self.sessionId, (int)status);
+      return NO;
+    }
+    self.sessionRotation = rotation;
+  }
+  if (NULL == self.unrotatedPool || width != self.unrotatedWidth || height != self.unrotatedHeight) {
+    if (NULL != self.unrotatedPool) {
+      CVPixelBufferPoolRelease(self.unrotatedPool);
+      self.unrotatedPool = NULL;
+    }
+    NSDictionary *pixelBufferAttributes = @{
+      (id)kCVPixelBufferPixelFormatTypeKey: @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
+      (id)kCVPixelBufferWidthKey: @(width),
+      (id)kCVPixelBufferHeightKey: @(height),
+      (id)kCVPixelBufferIOSurfacePropertiesKey: @{},
+    };
+    NSDictionary *poolAttributes = @{(id)kCVPixelBufferPoolMinimumBufferCountKey: @(POOL_ALLOCATION_THRESHOLD)};
+    CVPixelBufferPoolRef pool = NULL;
+    CVReturn poolStatus = CVPixelBufferPoolCreate(kCFAllocatorDefault,
+                                                  (__bridge CFDictionaryRef)poolAttributes,
+                                                  (__bridge CFDictionaryRef)pixelBufferAttributes,
+                                                  &pool);
+    if (poolStatus != kCVReturnSuccess || NULL == pool) {
+      FBExtLogError("Session %u: cannot create the rotation buffer pool (status %d)", self.sessionId, (int)poolStatus);
+      return NO;
+    }
+    self.unrotatedPool = pool;
+    self.unrotatedWidth = width;
+    self.unrotatedHeight = height;
+  }
+  return YES;
 }
 
 - (BOOL)reconfigureForWidth:(NSUInteger)width height:(NSUInteger)height
@@ -594,6 +732,17 @@ static const int POOL_ALLOCATION_THRESHOLD = 4;
   if (NULL != self.bufferPool) {
     CVPixelBufferPoolRelease(self.bufferPool);
     self.bufferPool = NULL;
+  }
+  if (NULL != self.unrotatedPool) {
+    CVPixelBufferPoolRelease(self.unrotatedPool);
+    self.unrotatedPool = NULL;
+  }
+  if (NULL != self.rotationSession) {
+    if (@available(iOS 16.0, *)) {
+      VTPixelRotationSessionInvalidate((VTPixelRotationSessionRef)self.rotationSession);
+    }
+    CFRelease(self.rotationSession);
+    self.rotationSession = NULL;
   }
 }
 

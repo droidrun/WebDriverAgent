@@ -135,6 +135,21 @@ FBBroadcastDimensions FBBroadcastTargetDimensions(NSUInteger configuredWidth,
                                                    NSUInteger sourceBufferHeight,
                                                    uint8_t orientation);
 
+/** The turn a ReplayKit buffer needs before it reads upright. */
+typedef NS_ENUM(NSUInteger, FBBroadcastRotation) {
+  FBBroadcastRotationNone = 0,
+  FBBroadcastRotationClockwise90,
+  FBBroadcastRotation180,
+  FBBroadcastRotationCounterclockwise90,
+};
+
+/**
+ Maps a frame's RPVideoSampleOrientationKey (a CGImagePropertyOrientation) to
+ the rotation that makes its portrait-shaped buffer upright. Unknown and
+ mirrored values, which ReplayKit does not emit, map to no rotation.
+ */
+FBBroadcastRotation FBBroadcastFrameRotation(uint8_t orientation);
+
 /** Milliseconds to wait after a failed encoder reconfiguration attempt. */
 uint64_t FBBroadcastReconfigureRetryDelayMs(NSUInteger failureCount);
 
