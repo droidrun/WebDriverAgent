@@ -60,6 +60,22 @@ FBBroadcastDimensions FBBroadcastTargetDimensions(NSUInteger configuredWidth,
     : (FBBroadcastDimensions){shortSide, longSide};
 }
 
+FBBroadcastRotation FBBroadcastFrameRotation(uint8_t orientation)
+{
+  switch (orientation) {
+    case 3: // kCGImagePropertyOrientationDown
+      return FBBroadcastRotation180;
+    // Measured on an iPhone 15 Pro (iOS 26.6.1) through VTPixelRotationSession: the quarter
+    // turns read upright opposite to the CGImagePropertyOrientation documentation.
+    case 6: // kCGImagePropertyOrientationRight
+      return FBBroadcastRotationCounterclockwise90;
+    case 8: // kCGImagePropertyOrientationLeft
+      return FBBroadcastRotationClockwise90;
+    default:
+      return FBBroadcastRotationNone;
+  }
+}
+
 uint64_t FBBroadcastReconfigureRetryDelayMs(NSUInteger failureCount)
 {
   if (failureCount == 0) {

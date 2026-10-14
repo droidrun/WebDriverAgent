@@ -116,6 +116,28 @@ static const uint64_t kPtsMask      = ~(((uint64_t)1 << 63) | ((uint64_t)1 << 62
   XCTAssertEqual(portrait.height, (NSUInteger)1278);
 }
 
+- (void)testBroadcastFrameRotationUprightsReplayKitBuffers
+{
+  // RPVideoSampleOrientationKey is a CGImagePropertyOrientation; the expected
+  // quarter turns were measured on hardware (see FBBroadcastFrameRotation).
+  XCTAssertEqual(FBBroadcastFrameRotation(1), FBBroadcastRotationNone);
+  XCTAssertEqual(FBBroadcastFrameRotation(3), FBBroadcastRotation180);
+  XCTAssertEqual(FBBroadcastFrameRotation(6), FBBroadcastRotationCounterclockwise90);
+  XCTAssertEqual(FBBroadcastFrameRotation(8), FBBroadcastRotationClockwise90);
+}
+
+- (void)testBroadcastFrameRotationLeavesUnknownAndMirroredOrientationsAlone
+{
+  // ReplayKit does not emit mirrored orientations; an unknown or mirrored
+  // value keeps the buffer as delivered rather than guessing a flip.
+  XCTAssertEqual(FBBroadcastFrameRotation(0), FBBroadcastRotationNone);
+  XCTAssertEqual(FBBroadcastFrameRotation(2), FBBroadcastRotationNone);
+  XCTAssertEqual(FBBroadcastFrameRotation(4), FBBroadcastRotationNone);
+  XCTAssertEqual(FBBroadcastFrameRotation(5), FBBroadcastRotationNone);
+  XCTAssertEqual(FBBroadcastFrameRotation(7), FBBroadcastRotationNone);
+  XCTAssertEqual(FBBroadcastFrameRotation(9), FBBroadcastRotationNone);
+}
+
 - (void)testBroadcastTargetSizeFallsBackToBufferAspectForUnknownOrientation
 {
   FBBroadcastDimensions landscape = FBBroadcastTargetDimensions(588, 1278, 2532, 1170, 0);
