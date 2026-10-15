@@ -14,11 +14,32 @@
 #endif
 
 #import "FBLogger.h"
+#import "FBRunLoopSpinner.h"
 
 static NSString *const FBBroadcastPickerHostErrorDomain = @"com.facebook.WebDriverAgent.FBBroadcastPickerHost";
 
 #if !TARGET_OS_TV
 static UIWindow *pickerWindow = nil;
+
+// Pins the runner to portrait while it hosts the picker. Otherwise a phone lying on its side turns
+// the runner, and with it the system's broadcast sheet, to landscape, and the confirmation tap
+// misses the sheet's button (it lands outside the module, which dismisses it).
+@interface FBBroadcastPickerViewController : UIViewController
+@end
+
+@implementation FBBroadcastPickerViewController
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations
+{
+  return UIInterfaceOrientationMaskPortrait;
+}
+
+- (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation
+{
+  return UIInterfaceOrientationPortrait;
+}
+
+@end
 #endif
 
 @implementation FBBroadcastPickerHost
@@ -64,7 +85,7 @@ static UIWindow *pickerWindow = nil;
     window.frame = CGRectMake(0, 0, 2, 2);
     window.windowLevel = UIWindowLevelNormal;
     window.alpha = 0.02;
-    window.rootViewController = [[UIViewController alloc] init];
+    window.rootViewController = [[FBBroadcastPickerViewController alloc] init];
 
     RPSystemBroadcastPickerView *pickerView = [[RPSystemBroadcastPickerView alloc] initWithFrame:CGRectMake(0, 0, 2, 2)];
     pickerView.preferredExtension = preferredExtension;
@@ -74,6 +95,7 @@ static UIWindow *pickerWindow = nil;
     pickerWindow = window;
   }
   [pickerWindow makeKeyAndVisible];
+  [self rotatePickerSceneToPortrait];
 
   RPSystemBroadcastPickerView *pickerView = nil;
   for (UIView *subview in pickerWindow.rootViewController.view.subviews) {
@@ -96,6 +118,29 @@ static UIWindow *pickerWindow = nil;
   [FBLogger log:@"Triggering the system broadcast picker"];
   [button sendActionsForControlEvents:UIControlEventTouchUpInside];
   return YES;
+}
+
++ (void)rotatePickerSceneToPortrait
+{
+  UIWindowScene *scene = pickerWindow.windowScene;
+  if (nil == scene || UIInterfaceOrientationIsPortrait(scene.interfaceOrientation)) {
+    return;
+  }
+  if (@available(iOS 16.0, *)) {
+    [pickerWindow.rootViewController setNeedsUpdateOfSupportedInterfaceOrientations];
+    UIWindowSceneGeometryPreferencesIOS *preferences =
+      [[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:UIInterfaceOrientationMaskPortrait];
+    [scene requestGeometryUpdateWithPreferences:preferences errorHandler:^(NSError *error) {
+      [FBLogger logFmt:@"Cannot rotate the broadcast picker host to portrait: %@", error.localizedDescription];
+    }];
+  } else {
+    [UIViewController attemptRotationToDeviceOrientation];
+  }
+  // The system sheet takes the orientation the runner has when the picker fires.
+  BOOL portrait = [[[[FBRunLoopSpinner new] timeout:2.0] interval:0.05] spinUntilTrue:^BOOL{
+    return UIInterfaceOrientationIsPortrait(scene.interfaceOrientation);
+  }];
+  [FBLogger logFmt:@"Broadcast picker host %@ portrait", portrait ? @"rotated to" : @"did not rotate to"];
 }
 
 + (nullable UIButton *)findButtonInView:(nullable UIView *)view
