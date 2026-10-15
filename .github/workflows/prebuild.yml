@@ -23,7 +23,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  XCODE_VERSION: "16.4"
+  XCODE_VERSION: "26.3"
   DESTINATION_SIM: platform=iOS Simulator,name=iPhone 17
   DESTINATION_SIM_tvOS: platform=tvOS Simulator,name=Apple TV 4K (3rd generation)
 
