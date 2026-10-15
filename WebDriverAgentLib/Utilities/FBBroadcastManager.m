@@ -25,6 +25,7 @@
 #import "XCUIApplication+FBTouchAction.h"
 #import "XCUIApplication.h"
 #import "XCUIApplication+FBHelpers.h"
+#import "XCUIDevice+FBHelpers.h"
 
 NSErrorDomain const FBBroadcastManagerErrorDomain = @"com.facebook.WebDriverAgent.FBBroadcastManager";
 
@@ -411,6 +412,54 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
     [FBLogger logFmt:@"broadcast/start: active-app lookup finished after %llums", FBBroadcastNowMs() - startedMs];
   }
 
+  // Every exit from here on - success or any failure - hands the foreground back. Restoring only
+  // on success stranded the runner's blank screen in front after a failed dance, and the next
+  // attempt then found the runner already frontmost and had nothing left to restore.
+  @try {
+    return [self runBroadcastDanceWithRunner:runner
+                              runnerIsActive:runnerIsActive
+                                   startedMs:startedMs
+                                     timeout:timeout
+                         confirmButtonLabels:confirmButtonLabels
+                               dismissLabels:dismissLabels
+                               goToAppLabels:goToAppLabels
+                                       error:error];
+  } @finally {
+    if (restoreForegroundApp) {
+      [self handBackForegroundToApp:previousApp];
+    }
+  }
+}
+
+// Leaves the screen on whatever was in front before the dance. When nothing is known (the
+// runner itself was frontmost, e.g. stranded there by an earlier failed start), the home screen
+// stands in: the runner's blank view must never stay in front, where it is what gets captured and
+// it follows the device sideways when the phone lies on its side. SpringBoard is activated
+// rather than sent a HOME button press, which WDA cannot deliver on iOS 26.
+- (void)handBackForegroundToApp:(nullable XCUIApplication *)previousApp
+{
+  if (nil != previousApp) {
+    [previousApp activate];
+    return;
+  }
+  if (UIApplication.sharedApplication.applicationState != UIApplicationStateActive) {
+    return;
+  }
+  NSError *homeError;
+  if (![XCUIDevice.sharedDevice fb_goToHomescreenWithError:&homeError]) {
+    [FBLogger logFmt:@"broadcast/start: cannot move the runner out of the foreground: %@", homeError.localizedDescription];
+  }
+}
+
+- (BOOL)runBroadcastDanceWithRunner:(XCUIApplication *)runner
+                     runnerIsActive:(BOOL)runnerIsActive
+                          startedMs:(uint64_t)startedMs
+                            timeout:(NSTimeInterval)timeout
+                confirmButtonLabels:(NSArray<NSString *> *)confirmButtonLabels
+                      dismissLabels:(NSArray<NSString *> *)dismissLabels
+                      goToAppLabels:(NSArray<NSString *> *)goToAppLabels
+                              error:(NSError **)error
+{
   // The picker can only present from a foreground app, so bring the runner up first. The
   // LaunchServices route is used instead of XCUIApplication.activate because activating the
   // runner from inside itself blocks on a self-quiescence wait that can only ever time out:
@@ -547,10 +596,6 @@ static const NSTimeInterval STOP_TIMEOUT = 5.0;
                                userInfo:@{NSLocalizedDescriptionKey: @"The broadcast was confirmed but the extension did not connect in time. Check that the extension is embedded and signed correctly (see docs/broadcast-extension.md)"}];
     }
     return NO;
-  }
-
-  if (nil != previousApp) {
-    [previousApp activate];
   }
   return YES;
 }
