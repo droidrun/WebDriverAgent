@@ -42,19 +42,33 @@ static id FBAXClient = nil;
   return [FBAXClient _setAXTimeout:timeout error:error];
 }
 
+- (NSTimeInterval)AXTimeout
+{
+  return [FBAXClient AXTimeout];
+}
+
 - (id<FBXCElementSnapshot>)snapshotForElement:(id<FBXCAccessibilityElement>)element
                                    attributes:(NSArray<NSString *> *)attributes
                                       inDepth:(BOOL)inDepth
                                         error:(NSError **)error
 {
-  NSMutableDictionary *parameters = [NSMutableDictionary dictionaryWithDictionary:self.defaultParameters];
-  if (!inDepth) {
-    parameters[FBSnapshotMaxDepthKey] = @1;
-  }
+  return [self snapshotForElement:element
+                       attributes:attributes
+                       parameters:inDepth ? @{} : @{FBSnapshotMaxDepthKey: @1}
+                            error:error];
+}
+
+- (id<FBXCElementSnapshot>)snapshotForElement:(id<FBXCAccessibilityElement>)element
+                                   attributes:(NSArray<NSString *> *)attributes
+                                   parameters:(NSDictionary<NSString *, id> *)parameters
+                                        error:(NSError **)error
+{
+  NSMutableDictionary *requestParameters = [NSMutableDictionary dictionaryWithDictionary:self.defaultParameters];
+  [requestParameters addEntriesFromDictionary:parameters];
 
   id result = [FBAXClient requestSnapshotForElement:element
                                          attributes:attributes
-                                         parameters:[parameters copy]
+                                         parameters:[requestParameters copy]
                                               error:error];
   id<FBXCElementSnapshot> snapshot = [result valueForKey:@"_rootElementSnapshot"];
   return nil == snapshot ? result : snapshot;

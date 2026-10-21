@@ -411,18 +411,43 @@ static BOOL FBMobilerunIsCheckableType(XCUIElementType type)
   }
 }
 
-- (NSDictionary *)fb_mobilerunA11yStateWithScale:(CGFloat)scale
+- (id<FBXCElementSnapshot>)fb_snapshotWithTimeout:(NSTimeInterval)timeout
+                                       parameters:(NSDictionary<NSString *, id> *)parameters
+                                            error:(NSError **)error
 {
-  id<FBXCElementSnapshot> snapshot = [self fb_standardSnapshot];
+  FBXCAXClientProxy *client = FBXCAXClientProxy.sharedClient;
+  // The timeout applies to every accessibility request of the runner, so it is put back right
+  // after this one. AXTimeout keeps reporting XCTest's initial value, which is what to restore.
+  NSTimeInterval defaultTimeout = client.AXTimeout;
+  NSError *timeoutError;
+  if (![client setAXTimeout:timeout error:&timeoutError]) {
+    [FBLogger logFmt:@"Could not limit the snapshot to %.1fs: %@", timeout, timeoutError];
+  }
+  id<FBXCElementSnapshot> snapshot = [client snapshotForElement:self.accessibilityElement
+                                                     attributes:FBStandardAttributeNames()
+                                                     parameters:parameters
+                                                          error:error];
+  if (![client setAXTimeout:defaultTimeout error:&timeoutError]) {
+    [FBLogger logFmt:@"Could not restore the %.1fs accessibility timeout: %@", defaultTimeout, timeoutError];
+  }
+  return snapshot;
+}
+
+- (NSDictionary *)fb_mobilerunA11yStateWithSnapshot:(id<FBXCElementSnapshot>)snapshot
+                                              scale:(CGFloat)scale
+                                          truncated:(BOOL)truncated
+{
   NSString *bundleId = self.bundleID ?: @"";
 
   // Side-channel populated during the single tree walk so `phone_state` needs no
   // extra snapshots or attribute queries.
   NSMutableDictionary *context = [NSMutableDictionary dictionary];
-  NSDictionary *tree = [self.class fb_a11yNodeForSnapshot:snapshot
-                                                    scale:scale
-                                              packageName:bundleId
-                                                  context:context];
+  NSDictionary *tree = nil == snapshot
+    ? [self.class fb_a11yRootNodeWithScale:scale packageName:bundleId]
+    : [self.class fb_a11yNodeForSnapshot:snapshot
+                                   scale:scale
+                             packageName:bundleId
+                                 context:context];
 
   NSMutableDictionary *phoneState = [NSMutableDictionary dictionary];
   NSDictionary *focusedElement = context[@"focusedElement"];
@@ -442,8 +467,38 @@ static BOOL FBMobilerunIsCheckableType(XCUIElementType type)
   phoneState[@"isEditable"] = @([context[@"isEditable"] boolValue]);
 
   return @{
-    @"a11y_tree": tree ?: [NSNull null],
+    @"a11y_tree": tree,
     @"phone_state": phoneState.copy,
+    @"truncated": @(truncated),
+  };
+}
+
+// Stands in for the tree when no snapshot could be taken: clients reject a null tree, and this
+// still names the application. Its frame is unknown without a snapshot, and so is the interface
+// orientation, so the root spans a square covering the screen either way round - clients drop a
+// childless root that lies mostly off-screen.
++ (NSDictionary *)fb_a11yRootNodeWithScale:(CGFloat)scale packageName:(NSString *)bundleId
+{
+  CGSize screenSize = UIScreen.mainScreen.bounds.size;
+  CGFloat side = MAX(screenSize.width, screenSize.height);
+  return @{
+    @"boundsInScreen": FBMobilerunBoundsFromFrame(CGRectMake(0, 0, side, side), scale),
+    @"className": [FBElementTypeTransformer stringWithElementType:XCUIElementTypeApplication],
+    @"resourceId": @"",
+    @"text": @"",
+    @"contentDescription": @"",
+    @"packageName": bundleId,
+    @"isCheckable": @NO,
+    @"isChecked": @NO,
+    @"isClickable": @NO,
+    @"isEnabled": @YES,
+    @"isFocusable": @NO,
+    @"isFocused": @NO,
+    @"isScrollable": @NO,
+    @"isLongClickable": @NO,
+    @"isPassword": @NO,
+    @"isSelected": @NO,
+    @"children": @[],
   };
 }
 
