@@ -23,6 +23,7 @@
 #import "FBXCElementSnapshotWrapper+Helpers.h"
 #import "FBXCAXClientProxy.h"
 #import "FBXMLGenerationOptions.h"
+#import "XCAXClient_iOS+FBSnapshotReqParams.h"
 #import "XCTMessagingChannel_RunnerToDaemon-Protocol.h"
 #import "XCTestPrivateSymbols.h"
 #import "XCTRunnerDaemonSession.h"
@@ -350,6 +351,9 @@ NSDictionary<NSString *, NSString *> *customExclusionAttributesMap(void) {
 
 #pragma mark - mobilerun accessibility state
 
+// How long the root-only fallback waits for SpringBoard's frame, in seconds.
+static const NSTimeInterval FBMobilerunSystemFrameTimeout = 2.;
+
 // Converts a logical-point frame into integer device-pixel bounds matching the
 // `A11YBounds` shape (left/top/right/bottom) expected by mobilerun.
 static NSDictionary *FBMobilerunBoundsFromFrame(CGRect frame, CGFloat scale)
@@ -479,7 +483,14 @@ static BOOL FBMobilerunIsCheckableType(XCUIElementType type)
 // childless root that lies mostly off-screen.
 + (NSDictionary *)fb_a11yRootNodeWithScale:(CGFloat)scale packageName:(NSString *)bundleId
 {
-  CGSize screenSize = UIScreen.mainScreen.bounds.size;
+  // SpringBoard spans the screen and answers even while the app is stuck. The runner's own
+  // UIScreen is no substitute on a device: without a launch screen the runner runs in the
+  // letterboxed compatibility mode, where bounds and nativeBounds both describe a 320x480 screen.
+  id<FBXCElementSnapshot> systemSnapshot = [XCUIApplication.fb_systemApplication
+                                            fb_snapshotWithTimeout:FBMobilerunSystemFrameTimeout
+                                                        parameters:@{FBSnapshotMaxDepthKey: @1}
+                                                             error:nil];
+  CGSize screenSize = nil == systemSnapshot ? UIScreen.mainScreen.bounds.size : systemSnapshot.frame.size;
   CGFloat side = MAX(screenSize.width, screenSize.height);
   return @{
     @"boundsInScreen": FBMobilerunBoundsFromFrame(CGRectMake(0, 0, side, side), scale),

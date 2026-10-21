@@ -97,6 +97,7 @@
     XCTSkip(@"Deliberately freezes the app for several seconds, too slow/flaky for CI");
   }
 
+  CGSize screenSize = self.testedApplication.frame.size;
   XCUIElement *deadlockButton = self.testedApplication.buttons[@"Deadlock app"];
   FBAssertWaitTillBecomesTrue(deadlockButton.fb_isVisible);
   // Freezes the app's main thread for 20s - see -[ViewController deadlockApp:]. Without a bound
@@ -115,8 +116,11 @@
   NSDictionary *root = state[@"a11y_tree"];
   XCTAssertEqualObjects(root[@"className"], @"XCUIElementTypeApplication");
   XCTAssertEqualObjects(root[@"packageName"], self.testedApplication.bundleID);
-  XCTAssertGreaterThan([root[@"boundsInScreen"][@"right"] integerValue], 0);
-  XCTAssertGreaterThan([root[@"boundsInScreen"][@"bottom"] integerValue], 0);
+  // Covers the screen in either orientation; on a device the runner's own UIScreen bounds are the
+  // letterboxed 320x480 compatibility screen, which falls short of it.
+  NSInteger side = (NSInteger)MAX(screenSize.width, screenSize.height);
+  XCTAssertGreaterThanOrEqual([root[@"boundsInScreen"][@"right"] integerValue], side);
+  XCTAssertGreaterThanOrEqual([root[@"boundsInScreen"][@"bottom"] integerValue], side);
 }
 
 @end
