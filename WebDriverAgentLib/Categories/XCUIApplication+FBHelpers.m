@@ -411,14 +411,92 @@ static BOOL FBMobilerunIsCheckableType(XCUIElementType type)
   }
 }
 
+// Private UIAccessibility trait bits (absent from the public SDK headers). They are the
+// same bits the native RemoteXPC tree in mobilerun-ios reads: TextEntry marks every text
+// input (secure ones too), IsEditing marks the one input currently being edited.
+static const unsigned long long FBMobilerunTraitTextEntry = 1ULL << 18;
+static const unsigned long long FBMobilerunTraitIsEditing = 1ULL << 21;
+
+// Whether a node takes typed text: the XCTest text input types, plus anything the app
+// marks as a text input by trait (web inputs and custom views need not map onto one of
+// those element types).
+static BOOL FBMobilerunIsEditable(XCUIElementType type, unsigned long long traits)
+{
+  return FBDoesElementSupportInnerText(type)
+    || (traits & (FBMobilerunTraitTextEntry | FBMobilerunTraitIsEditing)) != 0;
+}
+
+// Walks the snapshot tree in pre-order and keeps the deepest node accepted by 'match'
+// (the first one on a tie), so an ancestor that reports the same flag as its focused
+// descendant never wins over it.
+static void FBMobilerunFindDeepest(id<FBXCElementSnapshot> snapshot,
+                                   NSUInteger depth,
+                                   BOOL (^match)(id<FBXCElementSnapshot>),
+                                   id<FBXCElementSnapshot> __strong *best,
+                                   NSInteger *bestDepth)
+{
+  if (match(snapshot) && (NSInteger)depth > *bestDepth) {
+    *best = snapshot;
+    *bestDepth = (NSInteger)depth;
+  }
+  for (id<FBXCElementSnapshot> child in snapshot.children) {
+    FBMobilerunFindDeepest(child, depth + 1, match, best, bestDepth);
+  }
+}
+
+static id<FBXCElementSnapshot> FBMobilerunDeepestMatch(id<FBXCElementSnapshot> root,
+                                                       BOOL (^match)(id<FBXCElementSnapshot>))
+{
+  id<FBXCElementSnapshot> best = nil;
+  NSInteger bestDepth = -1;
+  FBMobilerunFindDeepest(root, 0, match, &best, &bestDepth);
+  return best;
+}
+
++ (nullable id<FBXCElementSnapshot>)fb_mobilerunFocusedSnapshotInTree:(nullable id<FBXCElementSnapshot>)root
+{
+  if (nil == root) {
+    return nil;
+  }
+#if TARGET_OS_TV
+  // tvOS has no first responder to speak of; the focus engine's focus is the real one.
+  id<FBXCElementSnapshot> engineFocused = FBMobilerunDeepestMatch(root, ^BOOL(id<FBXCElementSnapshot> s) {
+    return s.hasFocus;
+  });
+  if (nil != engineFocused) {
+    return engineFocused;
+  }
+#endif
+  // Keyboard focus belongs to the single first responder. 'hasFocus' is deliberately not
+  // consulted on iOS: it is focus-engine focus, which UIKit text fields never report on a
+  // touch-driven iPhone, while WebKit reports it on every <input> of a page whether or not
+  // one is focused.
+  id<FBXCElementSnapshot> focused = FBMobilerunDeepestMatch(root, ^BOOL(id<FBXCElementSnapshot> s) {
+    return s.hasKeyboardFocus;
+  });
+  if (nil != focused) {
+    return focused;
+  }
+  // Fall back to the IsEditing trait, which marks the input being edited.
+  return FBMobilerunDeepestMatch(root, ^BOOL(id<FBXCElementSnapshot> s) {
+    return (s.traits & FBMobilerunTraitIsEditing) != 0;
+  });
+}
+
 - (NSDictionary *)fb_mobilerunA11yStateWithScale:(CGFloat)scale
 {
   id<FBXCElementSnapshot> snapshot = [self fb_standardSnapshot];
   NSString *bundleId = self.bundleID ?: @"";
 
   // Side-channel populated during the single tree walk so `phone_state` needs no
-  // extra snapshots or attribute queries.
+  // extra snapshots or attribute queries. The focused node is picked up front, from the
+  // same snapshot, so exactly one node (or none) reports isFocused and phone_state
+  // describes that same node.
   NSMutableDictionary *context = [NSMutableDictionary dictionary];
+  id<FBXCElementSnapshot> focusedSnapshot = [self.class fb_mobilerunFocusedSnapshotInTree:snapshot];
+  if (nil != focusedSnapshot) {
+    context[@"focusedSnapshot"] = focusedSnapshot;
+  }
   NSDictionary *tree = [self.class fb_a11yNodeForSnapshot:snapshot
                                                     scale:scale
                                               packageName:bundleId
@@ -479,7 +557,8 @@ static BOOL FBMobilerunIsCheckableType(XCUIElementType type)
   node[@"isClickable"] = @(isClickable);
   node[@"isEnabled"] = @(snapshot.isEnabled);
   node[@"isFocusable"] = @(FBDoesElementSupportInnerText(elementType));
-  node[@"isFocused"] = @(snapshot.hasFocus);
+  BOOL isFocused = (snapshot == context[@"focusedSnapshot"]);
+  node[@"isFocused"] = @(isFocused);
   node[@"isScrollable"] = @(FBMobilerunIsScrollableType(elementType));
   node[@"isLongClickable"] = @(NO);
   node[@"isPassword"] = @(isPassword);
@@ -489,13 +568,13 @@ static BOOL FBMobilerunIsCheckableType(XCUIElementType type)
   if (elementType == XCUIElementTypeKeyboard) {
     context[@"keyboardVisible"] = @YES;
   }
-  if (snapshot.hasFocus && nil == context[@"focusedElement"]) {
+  if (isFocused) {
     context[@"focusedElement"] = @{
       @"text": wrappedSnapshot.wdValue ?: @"",
       @"className": className ?: @"",
       @"resourceId": identifier,
     };
-    context[@"isEditable"] = @(FBDoesElementSupportInnerText(elementType));
+    context[@"isEditable"] = @(FBMobilerunIsEditable(elementType, traits));
   }
 
   NSArray *childElements = snapshot.children;

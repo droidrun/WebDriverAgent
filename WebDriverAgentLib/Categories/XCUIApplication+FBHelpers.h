@@ -58,6 +58,19 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSDictionary *)fb_mobilerunA11yStateWithScale:(CGFloat)scale;
 
 /**
+ Picks the one node of a snapshot tree that holds keyboard focus, as reported by
+ `fb_mobilerunA11yStateWithScale:` (the only node with `isFocused`, and the source of
+ `phone_state.focusedElement`). The deepest node reporting `hasKeyboardFocus` wins;
+ failing that, the deepest node carrying the IsEditing accessibility trait.
+ `hasFocus` is ignored on iOS (WebKit sets it on every web input), and only used
+ first on tvOS, where focus-engine focus is the real focus.
+
+ @param root The root of the snapshot tree, normally the application snapshot.
+ @return The focused node, or nil when nothing has keyboard focus.
+ */
++ (nullable id<FBXCElementSnapshot>)fb_mobilerunFocusedSnapshotInTree:(nullable id<FBXCElementSnapshot>)root;
+
+/**
  Return application elements tree in a form of xml string
  with default options.
 
