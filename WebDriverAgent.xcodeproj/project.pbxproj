@@ -1335,6 +1335,7 @@
 		FBCAFE000000000000006051 /* FBAudioStreamTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000006050 /* FBAudioStreamTests.m */; };
 		FBCAFE000000000000008051 /* FBBroadcastLabelsTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000008050 /* FBBroadcastLabelsTests.m */; };
 		FBCAFE000000000000008053 /* FBMobilerunA11yCommandsTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000008052 /* FBMobilerunA11yCommandsTests.m */; };
+		FBCAFE000000000000008055 /* FBMobilerunFocusTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000008054 /* FBMobilerunFocusTests.m */; };
 		FBCAFE000000000000007002 /* FBSocks5TunnelProtocol.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007000 /* FBSocks5TunnelProtocol.h */; };
 		FBCAFE000000000000007003 /* FBSocks5TunnelProtocol.h in Headers */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007000 /* FBSocks5TunnelProtocol.h */; };
 		FBCAFE000000000000007004 /* FBSocks5TunnelProtocol.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000007001 /* FBSocks5TunnelProtocol.m */; };
@@ -2115,6 +2116,7 @@
 		FBCAFE000000000000006050 /* FBAudioStreamTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBAudioStreamTests.m; sourceTree = "<group>"; };
 		FBCAFE000000000000008050 /* FBBroadcastLabelsTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBBroadcastLabelsTests.m; sourceTree = "<group>"; };
 		FBCAFE000000000000008052 /* FBMobilerunA11yCommandsTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBMobilerunA11yCommandsTests.m; sourceTree = "<group>"; };
+		FBCAFE000000000000008054 /* FBMobilerunFocusTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBMobilerunFocusTests.m; sourceTree = "<group>"; };
 		FBCAFE000000000000007000 /* FBSocks5TunnelProtocol.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBSocks5TunnelProtocol.h; sourceTree = "<group>"; };
 		FBCAFE000000000000007001 /* FBSocks5TunnelProtocol.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBSocks5TunnelProtocol.m; sourceTree = "<group>"; };
 		FBCAFE000000000000007010 /* FBSocks5URI.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBSocks5URI.h; sourceTree = "<group>"; };
@@ -2964,6 +2966,7 @@
 				FBCAFE000000000000006050 /* FBAudioStreamTests.m */,
 				FBCAFE000000000000008050 /* FBBroadcastLabelsTests.m */,
 				FBCAFE000000000000008052 /* FBMobilerunA11yCommandsTests.m */,
+				FBCAFE000000000000008054 /* FBMobilerunFocusTests.m */,
 				FBCAFE000000000000002001 /* FBImageUtilsTests.m */,
 			);
 			path = UnitTests;
@@ -5284,6 +5287,7 @@
 				FBCAFE000000000000006051 /* FBAudioStreamTests.m in Sources */,
 				FBCAFE000000000000008051 /* FBBroadcastLabelsTests.m in Sources */,
 				FBCAFE000000000000008053 /* FBMobilerunA11yCommandsTests.m in Sources */,
+				FBCAFE000000000000008055 /* FBMobilerunFocusTests.m in Sources */,
 				FBCAFE000000000000002002 /* FBImageUtilsTests.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
