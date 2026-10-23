@@ -24,9 +24,26 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (BOOL)setAXTimeout:(NSTimeInterval)timeout error:(NSError **)error;
 
+/**
+ The timeout of a single accessibility request, 60s by default. Reads the value XCTest started
+ with: it does not follow 'setAXTimeout:error:'.
+ */
+- (NSTimeInterval)AXTimeout;
+
 - (nullable id<FBXCElementSnapshot>)snapshotForElement:(id<FBXCAccessibilityElement>)element
                                             attributes:(nullable NSArray<NSString *> *)attributes
                                                inDepth:(BOOL)inDepth
+                                                 error:(NSError **)error;
+
+/**
+ Requests one snapshot directly, without XCTest's element resolution and its retries.
+
+ @param parameters snapshot request parameters (e.g. FBSnapshotMaxDepthKey) that override the
+ defaults for this request only
+ */
+- (nullable id<FBXCElementSnapshot>)snapshotForElement:(id<FBXCAccessibilityElement>)element
+                                            attributes:(nullable NSArray<NSString *> *)attributes
+                                            parameters:(NSDictionary<NSString *, id> *)parameters
                                                  error:(NSError **)error;
 
 - (NSArray<id<FBXCAccessibilityElement>> *)activeApplications;

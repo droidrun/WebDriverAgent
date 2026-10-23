@@ -68,7 +68,7 @@ static void FBCollectFocused(NSDictionary *node, NSMutableArray<NSString *> *foc
   }
 }
 
-// Runs the same walk fb_mobilerunA11yStateWithScale: runs, minus taking the snapshot.
+// Runs the same walk fb_mobilerunA11yStateWithSnapshot:scale:truncated: runs.
 static NSDictionary *FBWalk(id<FBXCElementSnapshot> root, NSMutableDictionary *context)
 {
   id<FBXCElementSnapshot> focused = [XCUIApplication fb_mobilerunFocusedSnapshotInTree:root];

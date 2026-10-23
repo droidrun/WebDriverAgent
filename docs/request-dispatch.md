@@ -69,7 +69,10 @@ Deliberately **not** control routes:
 - the broadcast start/stop endpoints (drive the system broadcast picker through XCUI),
 - `/mobilerun/state` — it is the intended **liveness probe**: because it runs on the
   automation queue and does real accessibility work, it reflects a wedged automation queue
-  by timing out, while `/status` stays green as a process-liveness signal.
+  by timing out, while `/status` stays green as a process-liveness signal. A stuck or
+  oversized *app* does not read as a wedged queue: its snapshots are bounded (10s full,
+  then 5s shallow), and the answer degrades to a `truncated` tree that still names the
+  foreground app in `phone_state.packageName`.
 
 ### Thread-safety notes for control handlers
 

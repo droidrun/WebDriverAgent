@@ -9,7 +9,7 @@
 #import "FBMobilerunA11yCommands.h"
 
 #import "FBCommandStatus.h"
-#import "FBExceptions.h"
+#import "FBLogger.h"
 #import "FBResponsePayload.h"
 #import "FBRoute.h"
 #import "FBRouteRequest.h"
@@ -17,6 +17,7 @@
 #import "FBSession.h"
 #import "XCUIApplication.h"
 #import "XCUIApplication+FBHelpers.h"
+#import "XCAXClient_iOS+FBSnapshotReqParams.h"
 
 // Parses the optional 'scale' query parameter shared by the mobilerun endpoints. Response/request
 // coordinates are logical points multiplied by this scale; it defaults to the native screen scale
@@ -38,6 +39,17 @@ static BOOL FBMobilerunScaleFromRequest(FBRouteRequest *request, CGFloat *scale)
   return YES;
 }
 
+const NSTimeInterval FBMobilerunStateSnapshotTimeout = 10.;
+const NSTimeInterval FBMobilerunStateShallowSnapshotTimeout = 5.;
+const int FBMobilerunStateShallowSnapshotMaxDepth = 15;
+const int FBMobilerunStateShallowSnapshotMaxChildren = 20;
+
+@interface XCUIApplication (FBMobilerunStateApplication) <FBMobilerunStateApplication>
+@end
+
+@implementation XCUIApplication (FBMobilerunStateApplication)
+@end
+
 @implementation FBMobilerunA11yCommands
 
 #pragma mark - <FBCommandHandler>
@@ -53,29 +65,56 @@ static BOOL FBMobilerunScaleFromRequest(FBRouteRequest *request, CGFloat *scale)
 
 #pragma mark - Commands
 
-+ (NSDictionary *)stateWithSnapshotAttempt:(NSDictionary *(NS_NOESCAPE ^)(void))attempt
-                                   failure:(FBCommandStatus **)failure
++ (NSDictionary *)stateWithActiveApplication:(id<FBMobilerunStateApplication> (NS_NOESCAPE ^)(void))activeApplication
+                                    snapshot:(id _Nullable (NS_NOESCAPE ^)(id<FBMobilerunStateApplication> application, FBMobilerunSnapshotDepth depth))snapshot
+                                       build:(NSDictionary *(NS_NOESCAPE ^)(id<FBMobilerunStateApplication> application, id _Nullable snapshot, BOOL truncated))build
 {
-  NSException *snapshotFailure = nil;
-  for (NSUInteger attemptIndex = 0; attemptIndex < 2; attemptIndex++) {
-    @try {
-      return attempt();
-    } @catch (NSException *exception) {
-      if (![exception.name isEqualToString:FBStaleElementException]) {
-        @throw;
-      }
-      snapshotFailure = exception;
+  id<FBMobilerunStateApplication> application = activeApplication();
+  id result = snapshot(application, FBMobilerunSnapshotDepthFull);
+  if (nil != result) {
+    return build(application, result, NO);
+  }
+  // Right after a Home press the app resolved at the start of the request can be the one leaving
+  // the foreground, whose snapshot then fails; the app that took over (SpringBoard) is still worth
+  // a full snapshot.
+  id<FBMobilerunStateApplication> currentApplication = activeApplication();
+  if (currentApplication.processID != application.processID) {
+    application = currentApplication;
+    result = snapshot(application, FBMobilerunSnapshotDepthFull);
+    if (nil != result) {
+      return build(application, result, NO);
     }
   }
-  // Left to the global exception mapping, a failed snapshot answers 404 (stale element reference),
-  // which is also what a stock WebDriverAgent answers for this missing route - so clients take it
-  // as "no /mobilerun/state here" and switch to the far slower /source for good. A 5xx would read
-  // as a wedged runner instead. The app was just not in a state that can be snapshotted.
-  if (failure) {
-    *failure = [FBCommandStatus invalidElementStateErrorWithMessage:snapshotFailure.reason
-                                                          traceback:nil];
-  }
-  return nil;
+  // A shallow snapshot can still come back when the full one is too big to finish in time.
+  return build(application, snapshot(application, FBMobilerunSnapshotDepthShallow), YES);
+}
+
++ (NSDictionary *)stateOfActiveApplicationWithScale:(CGFloat)scale session:(FBSession *)session
+{
+  return [self stateWithActiveApplication:^id<FBMobilerunStateApplication>{
+    // Detected without a snapshot, so the state names the app even when no snapshot succeeds.
+    return session.activeApplication ?: XCUIApplication.fb_activeApplication;
+  } snapshot:^id(id<FBMobilerunStateApplication> application, FBMobilerunSnapshotDepth depth) {
+    BOOL isFull = FBMobilerunSnapshotDepthFull == depth;
+    NSTimeInterval timeout = isFull ? FBMobilerunStateSnapshotTimeout : FBMobilerunStateShallowSnapshotTimeout;
+    NSDictionary *parameters = isFull ? @{} : @{
+      FBSnapshotMaxDepthKey: @(FBMobilerunStateShallowSnapshotMaxDepth),
+      FBSnapshotMaxChildrenKey: @(FBMobilerunStateShallowSnapshotMaxChildren),
+    };
+    NSError *error;
+    id<FBXCElementSnapshot> snapshot = [(XCUIApplication *)application fb_snapshotWithTimeout:timeout
+                                                                                   parameters:parameters
+                                                                                        error:&error];
+    if (nil == snapshot) {
+      [FBLogger logFmt:@"The %@ snapshot of %@ failed within %.0fs: %@", isFull ? @"full" : @"shallow",
+       ((XCUIApplication *)application).bundleID, timeout, error.localizedDescription];
+    }
+    return snapshot;
+  } build:^NSDictionary *(id<FBMobilerunStateApplication> application, id snapshot, BOOL truncated) {
+    return [(XCUIApplication *)application fb_mobilerunA11yStateWithSnapshot:snapshot
+                                                                         scale:scale
+                                                                     truncated:truncated];
+  }];
 }
 
 + (id<FBResponsePayload>)handleGetState:(FBRouteRequest *)request
@@ -85,15 +124,7 @@ static BOOL FBMobilerunScaleFromRequest(FBRouteRequest *request, CGFloat *scale)
     return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:@"'scale' must be a positive number"
                                                                        traceback:nil]);
   }
-  FBCommandStatus *failure = nil;
-  NSDictionary *state = [self stateWithSnapshotAttempt:^NSDictionary *{
-    // Resolved on every attempt: right after a Home press the app picked at the start of the
-    // request can be the one leaving the foreground, whose snapshot then fails. The retry resolves
-    // the app that took over (SpringBoard).
-    XCUIApplication *app = request.session.activeApplication ?: XCUIApplication.fb_activeApplication;
-    return [app fb_mobilerunA11yStateWithScale:scale];
-  } failure:&failure];
-  return nil == state ? FBResponseWithStatus(failure) : FBResponseWithObject(state);
+  return FBResponseWithObject([self stateOfActiveApplicationWithScale:scale session:request.session]);
 }
 
 @end
