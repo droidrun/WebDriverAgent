@@ -8,84 +8,111 @@
 
 #import <XCTest/XCTest.h>
 
-#import "FBCommandStatus.h"
-#import "FBExceptions.h"
-#import "FBHTTPStatusCodes.h"
 #import "FBMobilerunA11yCommands.h"
 
+@interface FBFakeStateApplication : NSObject <FBMobilerunStateApplication>
+@property (nonatomic) int processID;
+@end
+
+@implementation FBFakeStateApplication
+
++ (instancetype)withProcessID:(int)processID
+{
+  FBFakeStateApplication *application = [self new];
+  application.processID = processID;
+  return application;
+}
+
+@end
+
 @interface FBMobilerunA11yCommandsTests : XCTestCase
+// Every snapshot request, as "<pid>:full" or "<pid>:shallow", in call order.
+@property (nonatomic) NSMutableArray<NSString *> *snapshotRequests;
 @end
 
 @implementation FBMobilerunA11yCommandsTests
 
-static NSException *FBStaleSnapshotException(void)
+- (void)setUp
 {
-  return [NSException exceptionWithName:FBStaleElementException reason:@"snapshot failed" userInfo:nil];
+  [super setUp];
+  self.snapshotRequests = [NSMutableArray array];
 }
 
-- (void)testStateIsReturnedWhenTheFirstSnapshotSucceeds
+// Runs the state assembly against the given active applications (one per resolution, the last
+// one repeating) and snapshot results keyed like 'snapshotRequests'; a missing key is a failed
+// snapshot. Returns what the build block received.
+- (NSDictionary *)stateWithActiveApplications:(NSArray<FBFakeStateApplication *> *)applications
+                                    snapshots:(NSDictionary<NSString *, NSString *> *)snapshots
 {
-  __block NSUInteger attempts = 0;
-  FBCommandStatus *failure = nil;
-  NSDictionary *state = [FBMobilerunA11yCommands stateWithSnapshotAttempt:^NSDictionary *{
-    attempts++;
-    return @{@"phone_state": @{}};
-  } failure:&failure];
-
-  XCTAssertEqualObjects(state, @{@"phone_state": @{}});
-  XCTAssertNil(failure);
-  XCTAssertEqual(attempts, 1u);
+  __block NSUInteger resolutions = 0;
+  return [FBMobilerunA11yCommands stateWithActiveApplication:^id<FBMobilerunStateApplication>{
+    FBFakeStateApplication *application = applications[MIN(resolutions, applications.count - 1)];
+    resolutions++;
+    return application;
+  } snapshot:^id(id<FBMobilerunStateApplication> application, FBMobilerunSnapshotDepth depth) {
+    NSString *request = [NSString stringWithFormat:@"%d:%@", application.processID,
+                         FBMobilerunSnapshotDepthFull == depth ? @"full" : @"shallow"];
+    [self.snapshotRequests addObject:request];
+    return snapshots[request];
+  } build:^NSDictionary *(id<FBMobilerunStateApplication> application, id snapshot, BOOL truncated) {
+    return @{
+      @"pid": @(application.processID),
+      @"snapshot": snapshot ?: [NSNull null],
+      @"truncated": @(truncated),
+    };
+  }];
 }
 
-- (void)testFailedSnapshotIsRetriedOnce
+- (void)testCompleteSnapshotIsTakenOnce
+{
+  NSDictionary *state = [self stateWithActiveApplications:@[[FBFakeStateApplication withProcessID:1]]
+                                                snapshots:@{@"1:full": @"tree"}];
+
+  XCTAssertEqualObjects(state, (@{@"pid": @1, @"snapshot": @"tree", @"truncated": @NO}));
+  XCTAssertEqualObjects(self.snapshotRequests, @[@"1:full"]);
+}
+
+- (void)testAppThatTookOverIsSnapshottedInFull
 {
   // After a Home press the app resolved at the start of the request can be the one that is
-  // leaving the foreground; its snapshot fails, and a second attempt resolves SpringBoard.
-  __block NSUInteger attempts = 0;
-  FBCommandStatus *failure = nil;
-  NSDictionary *state = [FBMobilerunA11yCommands stateWithSnapshotAttempt:^NSDictionary *{
-    if (0 == attempts++) {
-      @throw FBStaleSnapshotException();
-    }
-    return @{@"phone_state": @{@"packageName": @"com.apple.springboard"}};
-  } failure:&failure];
+  // leaving the foreground; its snapshot fails, and SpringBoard has taken over by then.
+  NSDictionary *state = [self stateWithActiveApplications:@[[FBFakeStateApplication withProcessID:1],
+                                                            [FBFakeStateApplication withProcessID:2]]
+                                                snapshots:@{@"2:full": @"springboard"}];
 
-  XCTAssertEqualObjects(state[@"phone_state"][@"packageName"], @"com.apple.springboard");
-  XCTAssertNil(failure);
-  XCTAssertEqual(attempts, 2u);
+  XCTAssertEqualObjects(state, (@{@"pid": @2, @"snapshot": @"springboard", @"truncated": @NO}));
+  XCTAssertEqualObjects(self.snapshotRequests, (@[@"1:full", @"2:full"]));
 }
 
-- (void)testPersistentSnapshotFailureIsNotReportedAsNotFound
+- (void)testSameAppIsNotSnapshottedInFullTwice
 {
-  // A 404 is what a stock WebDriverAgent answers for the missing route, and clients take it as
-  // "this runner has no /mobilerun/state" for good. A failed snapshot must say something else,
-  // and must not be a 5xx either: that reads as a wedged runner and triggers a relaunch.
-  __block NSUInteger attempts = 0;
-  FBCommandStatus *failure = nil;
-  NSDictionary *state = [FBMobilerunA11yCommands stateWithSnapshotAttempt:^NSDictionary *{
-    attempts++;
-    @throw FBStaleSnapshotException();
-  } failure:&failure];
+  // A full snapshot that timed out would time out again; each attempt costs the whole budget.
+  NSDictionary *state = [self stateWithActiveApplications:@[[FBFakeStateApplication withProcessID:1]]
+                                                snapshots:@{@"1:shallow": @"top"}];
 
-  XCTAssertNil(state);
-  XCTAssertEqual(attempts, 2u);
-  XCTAssertNotNil(failure);
-  XCTAssertNotEqual(failure.statusCode, kHTTPStatusCodeNotFound);
-  XCTAssertGreaterThanOrEqual(failure.statusCode, 400);
-  XCTAssertLessThan(failure.statusCode, 500);
-  XCTAssertTrue([failure.message containsString:@"snapshot failed"]);
+  XCTAssertEqualObjects(state, (@{@"pid": @1, @"snapshot": @"top", @"truncated": @YES}));
+  XCTAssertEqualObjects(self.snapshotRequests, (@[@"1:full", @"1:shallow"]));
 }
 
-- (void)testOtherExceptionsAreNotSwallowed
+- (void)testAppThatTookOverFallsBackToShallowSnapshot
 {
-  // Anything but a failed snapshot keeps the global exception mapping (a deadlocked app, say).
-  __block NSUInteger attempts = 0;
-  FBCommandStatus *failure = nil;
-  XCTAssertThrowsSpecificNamed(([FBMobilerunA11yCommands stateWithSnapshotAttempt:^NSDictionary *{
-    attempts++;
-    @throw [NSException exceptionWithName:FBApplicationDeadlockDetectedException reason:@"" userInfo:nil];
-  } failure:&failure]), NSException, FBApplicationDeadlockDetectedException);
-  XCTAssertEqual(attempts, 1u);
+  NSDictionary *state = [self stateWithActiveApplications:@[[FBFakeStateApplication withProcessID:1],
+                                                            [FBFakeStateApplication withProcessID:2]]
+                                                snapshots:@{@"2:shallow": @"top"}];
+
+  XCTAssertEqualObjects(state, (@{@"pid": @2, @"snapshot": @"top", @"truncated": @YES}));
+  XCTAssertEqualObjects(self.snapshotRequests, (@[@"1:full", @"2:full", @"2:shallow"]));
+}
+
+- (void)testStateNamesTheAppWhenNoSnapshotSucceeds
+{
+  // The foreground app is known without any snapshot, which is what clients need most; a failed
+  // request instead leaves them retrying behind the stuck app for minutes.
+  NSDictionary *state = [self stateWithActiveApplications:@[[FBFakeStateApplication withProcessID:1]]
+                                                snapshots:@{}];
+
+  XCTAssertEqualObjects(state, (@{@"pid": @1, @"snapshot": [NSNull null], @"truncated": @YES}));
+  XCTAssertEqualObjects(self.snapshotRequests, (@[@"1:full", @"1:shallow"]));
 }
 
 @end

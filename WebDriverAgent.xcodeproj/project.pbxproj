@@ -1290,6 +1290,7 @@
 		FBCAFE000000000000003105 /* FBMobilerunActionsCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003104 /* FBMobilerunActionsCommands.m */; };
 		FBCAFE000000000000003106 /* FBMobilerunActionsCommands.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003104 /* FBMobilerunActionsCommands.m */; };
 		FBCAFE000000000000003202 /* FBMobilerunActionsIntegrationTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003201 /* FBMobilerunActionsIntegrationTests.m */; };
+		FBCAFE000000000000003402 /* FBMobilerunA11yIntegrationTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000003401 /* FBMobilerunA11yIntegrationTests.m */; };
 		FBCAFE000000000000004002 /* FBVideoStreamSessionTests.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000004001 /* FBVideoStreamSessionTests.m */; };
 		FBCAFE000000000000005103 /* FBBroadcastSampleHandler.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005102 /* FBBroadcastSampleHandler.m */; };
 		FBCAFE000000000000005106 /* FBExtBroadcastClient.m in Sources */ = {isa = PBXBuildFile; fileRef = FBCAFE000000000000005105 /* FBExtBroadcastClient.m */; };
@@ -2082,6 +2083,7 @@
 		FBCAFE000000000000003101 /* FBMobilerunActionsCommands.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = FBMobilerunActionsCommands.h; sourceTree = "<group>"; };
 		FBCAFE000000000000003104 /* FBMobilerunActionsCommands.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBMobilerunActionsCommands.m; sourceTree = "<group>"; };
 		FBCAFE000000000000003201 /* FBMobilerunActionsIntegrationTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FBMobilerunActionsIntegrationTests.m; sourceTree = "<group>"; };
+		FBCAFE000000000000003401 /* FBMobilerunA11yIntegrationTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = FBMobilerunA11yIntegrationTests.m; sourceTree = "<group>"; };
 		FBCAFE000000000000004001 /* FBVideoStreamSessionTests.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = FBVideoStreamSessionTests.m; sourceTree = "<group>"; };
 		FBCAFE000000000000005002 /* WebDriverAgentBroadcast.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = WebDriverAgentBroadcast.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FBCAFE00000000000000500C /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -2908,6 +2910,7 @@
 				A1B2C3D41F001A00A1B0003 /* FBVoiceOverTests.m */,
 				71241D7D1FAF084E00B9559F /* FBW3CTouchActionsIntegrationTests.m */,
 				FBCAFE000000000000003201 /* FBMobilerunActionsIntegrationTests.m */,
+				FBCAFE000000000000003401 /* FBMobilerunA11yIntegrationTests.m */,
 				FBCAFE000000000000007330 /* FBMobilerunSocks5IntegrationTests.m */,
 				71241D7F1FAF087500B9559F /* FBW3CMultiTouchActionsIntegrationTests.m */,
 				7136C0F8243A182400921C76 /* FBW3CTypeActionsTests.m */,
@@ -5206,6 +5209,7 @@
 				A1B2C3D41F001A00A1B0008 /* FBVoiceOverTests.m in Sources */,
 				71241D7E1FAF084E00B9559F /* FBW3CTouchActionsIntegrationTests.m in Sources */,
 				FBCAFE000000000000003202 /* FBMobilerunActionsIntegrationTests.m in Sources */,
+				FBCAFE000000000000003402 /* FBMobilerunA11yIntegrationTests.m in Sources */,
 				FBCAFE000000000000007331 /* FBMobilerunSocks5IntegrationTests.m in Sources */,
 				63FD950221F9D06100A3E356 /* FBImageProcessorTests.m in Sources */,
 				719CD8FF2126C90200C7D0C2 /* FBAutoAlertsHandlerTests.m in Sources */,

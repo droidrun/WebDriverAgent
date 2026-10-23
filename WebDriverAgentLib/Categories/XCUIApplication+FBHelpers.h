@@ -44,18 +44,38 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSDictionary *)fb_accessibilityTree;
 
 /**
+ Takes one snapshot of the application that gives up after 'timeout' seconds.
+ Unlike -snapshotWithError: it skips XCTest's element resolution and its
+ retries, each of which waits up to XCTest's 60s accessibility timeout.
+
+ @param timeout The accessibility timeout for this request, in seconds.
+ @param parameters Snapshot request parameters overriding the defaults, e.g.
+ a smaller FBSnapshotMaxDepthKey.
+ @param error Set when the snapshot failed or timed out.
+ @return The snapshot, or nil on failure.
+ */
+- (nullable id<FBXCElementSnapshot>)fb_snapshotWithTimeout:(NSTimeInterval)timeout
+                                                parameters:(NSDictionary<NSString *, id> *)parameters
+                                                     error:(NSError **)error;
+
+/**
  Returns a compact accessibility state tailored for mobilerun: a recursive
  accessibility tree (Android-style `A11YNode` shape) plus a `phone_state`
- summary. It is built from a single standard snapshot and only reads
- snapshot-resident attributes, so it deliberately avoids the expensive
- visibility/accessibility/hittable resolution performed by `fb_tree`.
+ summary. It only reads snapshot-resident attributes, so it deliberately
+ avoids the expensive visibility/accessibility/hittable resolution performed
+ by `fb_tree`, and makes no accessibility requests of its own.
 
+ @param snapshot The application's snapshot, or nil when none could be taken:
+ the tree is then the application root alone, spanning the screen.
  @param scale The factor the logical-point element bounds are multiplied by.
  Pass the native screen scale for device pixels or 1 for plain points.
- @return Dictionary with `a11y_tree` (nested `A11YNode` dictionaries) and
- `phone_state` entries.
+ @param truncated Whether the snapshot is incomplete, reported as `truncated`.
+ @return Dictionary with `a11y_tree` (nested `A11YNode` dictionaries),
+ `phone_state` and `truncated` entries.
  */
-- (NSDictionary *)fb_mobilerunA11yStateWithScale:(CGFloat)scale;
+- (NSDictionary *)fb_mobilerunA11yStateWithSnapshot:(nullable id<FBXCElementSnapshot>)snapshot
+                                              scale:(CGFloat)scale
+                                          truncated:(BOOL)truncated;
 
 /**
  Return application elements tree in a form of xml string
